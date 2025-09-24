@@ -4,3 +4,9 @@
 uploads/
 cache/
 *.log
+/vendor/
+/node_modules/
+.env
+uploads/
+cache/
+*.log
