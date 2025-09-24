@@ -1,0 +1,4 @@
+/* https://staff.vapeshed.co.nz/modules/purchase-orders/assets/css/admin.dashboard.css */
+.po-admin .table td { vertical-align: middle; }
+.po-admin .text-monospace { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.po-admin .btn-xs { padding: .125rem .25rem; font-size: .7rem; }
