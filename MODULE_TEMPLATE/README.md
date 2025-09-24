@@ -62,3 +62,9 @@ How to use
 Rollback & Backups
 - Keep one backup per edited file under private_html/backups as per org policy.
 - Migrator is idempotent; re-running is safe.
+
+Docs (Required)
+- For every new module, create `docs/` with:
+  - `REFERENCE_MAP.md`, `COMPONENT_INDEX.md`, `KNOWLEDGE_BASE.md`, `CHANGELOG.md`
+- Link them in the central index: https://staff.vapeshed.co.nz/modules/docs/INDEX.md
+- Use absolute links under https://staff.vapeshed.co.nz in all documentation.

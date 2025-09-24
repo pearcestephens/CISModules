@@ -7,10 +7,10 @@ Architecture, conventions, and operational notes for the Purchase Orders module.
 - Tech: PHP 8.x, Bootstrap views, vanilla JS modules (`receive.*.js`, `admin.dashboard.js`), AJAX POST endpoints with CSRF and auth.
 
 ## Entry Points
-- User landing: https://staff.vapeshed.co.nz/modules/purchase-orders/views/index.php (via module router)
-- Receive: https://staff.vapeshed.co.nz/modules/module.php?module=purchase-orders&view=receive&po_id=<id>
+- User landing (via CIS Template router): https://staff.vapeshed.co.nz/modules/module.php?module=purchase-orders&view=index
+- Receive (works without specifying a PO initially): https://staff.vapeshed.co.nz/modules/module.php?module=purchase-orders&view=receive&po_id={id}
 - Admin: https://staff.vapeshed.co.nz/modules/module.php?module=purchase-orders&view=admin
-- AJAX: https://staff.vapeshed.co.nz/modules/purchase-orders/ajax/handler.php (POST only)
+- AJAX (POST only): https://staff.vapeshed.co.nz/modules/purchase-orders/ajax/handler.php
 
 ## Security & Session
 - All POST actions require: logged-in user, CSRF token verified (po_verify_csrf()).

@@ -6,14 +6,19 @@ $tidForCounter = 0; foreach ($__tid_keys as $__k) { if (isset($_GET[$__k]) && (i
 ?>
 <section class="card w-100 mb-3" aria-labelledby="items-summary-title" id="table-card">
   <div class="card-body py-2">
-    <div id="items-summary-title" class="sr-only">Transfer Items Summary</div>
-    <div class="d-flex align-items-center flex-wrap mb-2 summary-bar" style="gap:12px;">
-      <span>Items: <strong id="itemsToTransfer"><?php echo isset($transferData->products) ? (int)count($transferData->products) : 0; ?></strong></span>
-  <span>Remaining total: <strong id="plannedTotal">0</strong></span>
-      <span>Counted total: <strong id="countedTotal">0</strong></span>
-  <span>Diff: <strong id="diffTotal">0</strong></span>
-  <button type="button" class="btn btn-outline-secondary btn-xs" data-action="fill-all-planned" title="Set counted equal to planned for all rows">Fill counted = planned</button>
+    <div class="d-flex justify-content-between align-items-start mb-2">
+      <div class="d-flex align-items-center flex-wrap summary-bar" style="gap:12px;">
+        <span>Items: <strong id="itemsToTransfer"><?php echo isset($transferData->products) ? (int)count($transferData->products) : 0; ?></strong></span>
+        <span>Remaining total: <strong id="plannedTotal">0</strong></span>
+        <span>Counted total: <strong id="countedTotal">0</strong></span>
+        <span>Diff: <strong id="diffTotal">0</strong></span>
+        <button type="button" class="btn btn-outline-secondary btn-xs" data-action="fill-all-planned" title="Set counted equal to planned for all rows">Fill counted = planned</button>
+      </div>
+      <div>
+        <button type="button" class="btn btn-sm btn-primary" id="btn-add-products" data-toggle="modal" data-target="#stx-add-products"><i class="fa fa-plus mr-1"></i> Add Products</button>
+      </div>
     </div>
+    <div id="items-summary-title" class="sr-only">Transfer Items Summary</div>
     <div class="table-responsive stx-table">
       <table class="table table-striped table-sm" id="transfer-table" aria-describedby="items-summary-title">
         <thead class="thead-light">

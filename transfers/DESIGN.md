@@ -38,12 +38,14 @@ Purchase Orders share the header+lines pattern but differ in the “destination 
 
 Therefore POs live outside this module’s path and retain a dedicated UI/workflow at:
 
-- https://staff.vapeshed.co.nz/purchase-orders/
+- https://staff.vapeshed.co.nz/modules/module.php?module=purchase-orders&view=index
 
 ## Dashboards
 
 - All Transfers Dashboard: https://staff.vapeshed.co.nz/modules/transfers/dashboard.php
 - Stock Dashboard: https://staff.vapeshed.co.nz/modules/transfers/stock/dashboard.php
+ - Pack (CIS Template): https://staff.vapeshed.co.nz/modules/module.php?module=transfers/stock&view=pack&transfer={id}
+ - Outgoing (CIS Template): https://staff.vapeshed.co.nz/modules/module.php?module=transfers/stock&view=outgoing
 
 ## Base Helpers
 

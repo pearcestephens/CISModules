@@ -3,13 +3,13 @@
 This module implements the “Stock” transfer workflow aligned with Lightspeed X-Series Consignment lifecycle.
 It replaces legacy `stock-transfers` paths but remains backward-compatible.
 
-Primary pages (dev URLs):
-- Dashboard: https://staff.vapeshed.co.nz/modules/transfers/stock/dashboard.php
-- Outgoing:  https://staff.vapeshed.co.nz/modules/transfers/stock/outgoing.php?transfer={id}
-- Pack:      https://staff.vapeshed.co.nz/modules/transfers/stock/pack.php?transfer={id}
+Primary pages:
+- Dashboard (dev endpoint): https://staff.vapeshed.co.nz/modules/transfers/stock/dashboard.php
+- Outgoing (template):  https://staff.vapeshed.co.nz/modules/module.php?module=transfers/stock&view=outgoing
+- Pack (template):      https://staff.vapeshed.co.nz/modules/module.php?module=transfers/stock&view=pack&transfer={id}
 
 Template route (preferred for linking):
-- https://staff.vapeshed.co.nz/modules/module.php?module=transfers/stock&view=stock
+- Stock dashboard: https://staff.vapeshed.co.nz/modules/module.php?module=transfers/stock&view=stock
 
 Routing & Template Notes:
 - Use real .php endpoints during development (no extensionless routes).
@@ -190,9 +190,9 @@ Printers and labels (status and tokens):
 - Status endpoint (POST): https://staff.vapeshed.co.nz/modules/transfers/stock/ajax/handler.php?ajax_action=get_printers_config
 	- Returns `{ success, data: { has_nzpost: bool, has_gss: bool, default: "nzpost"|"gss"|"manual" }, request_id }`
 	- Requires CSRF unless using internal token in non-production.
-- Tokens / enablement:
-	- NZ Post: Provide either `NZPOST_TOKEN` or `NZPOST_SUBSCRIPTION_KEY` in the environment, or expose a server wrapper `createNzPostLabel_wrapped()`.
-	- GoSweetSpot (GSS): Provide `GSS_TOKEN` in the environment, or expose `createGssLabel_wrapped()`.
+- Tokens / enablement (policy):
+	- Availability signalling (chips/tabs) is determined exclusively from tokens stored on the active outlet’s `vend_outlets` record. Environment/wrapper fallbacks are not used for signalling.
+	- Downstream label creation should also prefer outlet-scoped credentials. If environment wrapper helpers exist during transition, treat them as legacy and plan migration to outlet tokens.
 - Label creation endpoints (POST):
 	- NZ Post:  https://staff.vapeshed.co.nz/modules/transfers/stock/ajax/handler.php?ajax_action=create_label_nzpost
 	- GSS:      https://staff.vapeshed.co.nz/modules/transfers/stock/ajax/handler.php?ajax_action=create_label_gss
@@ -202,7 +202,7 @@ Quick verification (happy path):
 
 1) Navigate to the template Pack URL with a valid `{ID}`. The page should show a single compact header, from → to outlets, and a sticky items table.
 2) Confirm items render from `transfer_items` (product names present; planned = requested − already sent).
-3) Inspect the network call to `get_printers_config` — it should return the carrier availability based on env tokens/wrappers.
+3) Inspect the network call to `get_printers_config` — it should return the carrier availability based solely on tokens present on the current `vend_outlets` record.
 4) Toggle between carriers; unavailable carrier tabs are hidden automatically.
 5) Create a manual tracking entry to verify the fallback path; posting should succeed and update shipment history.
 

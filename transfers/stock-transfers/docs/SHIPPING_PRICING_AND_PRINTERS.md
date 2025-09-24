@@ -1,8 +1,9 @@
 # Shipping, Pricing, and Printer Integration
 
 This document captures database schema, pricing sources, API endpoints, and printer behavior for the Stock Transfers module.
+Note: The active module lives under `modules/transfers/stock/`. This `stock-transfers` path remains as a legacy doc holder while code is consolidated.
 
-Last updated: 2025-09-21
+Last updated: 2025-09-24
 
 ---
 
@@ -85,6 +86,7 @@ Wrapper expectations (server-side):
 Security:
 - CSRF required via header or form field.
 - Server logs include `request_id` for correlation.
+ - Availability signalling in the UI (chips/tabs) must reflect tokens stored on the current outlet’s `vend_outlets` row only; do not rely on environment wrappers for signalling.
 
 ---
 

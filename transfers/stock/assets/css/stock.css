@@ -121,3 +121,11 @@
 /* Printer availability badges */
 .stx-outgoing .stx-printer__status.badge-success{ background-color:#28a745; color:#fff; }
 .stx-outgoing .stx-printer__status.badge-warning{ background-color:#ffc107; color:#212529; }
+
+/* Subtle colorful accents and live status visuals */
+.stx-outgoing .stx-chip{ display:inline-flex; align-items:center; background:#e8f4ff; border:1px solid #b6d7ff; color:#0b5ed7; border-radius:999px; font-size:11px; padding:2px 8px; }
+.stx-outgoing .stx-chip.warn{ background:#fff4e5; border-color:#ffd8a8; color:#b35c00; }
+#stx-live-badge{ position:relative; }
+#stx-live-badge::after{ content:""; position:absolute; inset:-3px; border-radius:999px; border:1px solid rgba(11,94,215,0.25); animation: stxPulse 2.2s ease-in-out infinite; }
+@keyframes stxPulse{ 0%{opacity:0.2; transform: scale(1);} 50%{opacity:0.6; transform: scale(1.06);} 100%{opacity:0.2; transform: scale(1);} }
+.stx-outgoing .table thead.thead-light th{ background:#f1f6ff; border-color:#e1ecff; color:#1b2a4a; }

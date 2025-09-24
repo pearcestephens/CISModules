@@ -16,39 +16,74 @@
     root.addEventListener('click', async (e)=>{ const a=e.target.closest('[data-tab]'); if(!a) return; const name=a.getAttribute('data-tab'); if(name==='nzpost'){ await STX.lazy(u('shipping.np.js')); } else if(name==='gss'){ await STX.lazy(u('shipping.gss.js')); } else if(name==='manual'){ await STX.lazy(u('shipping.manual.js')); } else if(name==='history'){ await STX.lazy(u('history.js')); } });
     try { if (window.STXPrinter){ const csrf=(document.querySelector('meta[name="csrf-token"]')?.content) || (root.querySelector('input[name="csrf"]')?.value) || ''; const ajax=(document.querySelector('meta[name="stx-ajax"]')?.content) || (root.querySelector('input[name="stx-ajax"]')?.value) || undefined; const tid=document.getElementById('transferID')?.value || ''; window.STXPrinter.init({ transferId: tid, csrf: csrf, ajaxUrl: ajax }); } } catch (e) {}
 
-    // Draft/status toolbar wiring
-    (function draftToolbar(){
+    // Live-save + lock toolbar
+    (function liveToolbar(){
       const tid = document.getElementById('transferID')?.value || '';
-      const saveBtn = document.getElementById('stx-save');
-      const restoreBtn = document.getElementById('stx-restore');
-      const discardBtn = document.getElementById('stx-discard');
-      const autosaveCk = document.getElementById('stx-autosave');
-      const draftInd = document.getElementById('stx-draft-indicator');
-      const saveStatus = document.getElementById('stx-save-status');
-      let autosaveTimer = null;
+      const liveBadge = document.getElementById('stx-live-badge');
+      const liveStatus = document.getElementById('stx-live-status');
+  const lockStatus = document.getElementById('stx-lock-status');
+  const lockOwner = document.getElementById('stx-lock-owner');
+      const reqLockBtn = document.getElementById('stx-request-lock');
+      let readOnly = true;
+      let typingTimer = null;
+      let hbTimer = null;
 
-      function setStatus(text, type){ if(saveStatus){ saveStatus.textContent = text; saveStatus.classList.remove('text-danger','text-success','text-muted'); saveStatus.classList.add(type==='error'?'text-danger':(type==='ok'?'text-success':'text-muted')); } }
-      function setDraft(on){ if(draftInd){ draftInd.textContent = on ? 'On' : 'Off'; draftInd.parentElement?.classList.toggle('badge-success', !!on); draftInd.parentElement?.classList.toggle('badge-secondary', !on); } }
+      function setStatus(text, tone){ if(liveStatus){ liveStatus.textContent = text; } if(liveBadge){ liveBadge.style.background = tone==='busy' ? '#ffe8cc' : '#e8f4ff'; liveBadge.style.color = tone==='busy' ? '#b35c00' : '#0b5ed7'; liveBadge.style.borderColor = tone==='busy' ? '#ffbf80' : '#b6d7ff'; } }
+      function setReadOnly(on, ownerName){
+        readOnly = !!on;
+        lockStatus.textContent = on ? 'Read-only' : 'Editing';
+        lockStatus.classList.toggle('text-danger', on);
+        lockStatus.classList.toggle('text-success', !on);
+        if (lockOwner){
+          if (on && ownerName){ lockOwner.style.display=''; lockOwner.textContent = '(Locked by ' + ownerName + ')'; }
+          else { lockOwner.style.display='none'; lockOwner.textContent=''; }
+        }
+        document.querySelectorAll('[data-behavior="counted-input"]').forEach(inp=> inp.disabled = on);
+      }
 
-      async function saveNow(){ try { setStatus('Saving...', ''); const payload = { transfer_id: tid, items: JSON.stringify(STXPack.collectItems()) }; const res = await STX.fetchJSON('finalize_pack', payload); setStatus('Saved', 'ok'); STX.toast({ type:'success', text:'Saved changes' }); setDraft(true); } catch(err){ setStatus('Save failed', 'error'); STX.toast({ type:'error', text: err.message || 'Save failed' }); } }
-      async function restore(){ try { setStatus('Restoring...', ''); const res = await STX.fetchJSON('get_status', { transfer_id: tid }); const draft = !!res?.data?.is_draft; setDraft(draft); setStatus('Restored', 'ok'); STX.toast({ type:'success', text:'Restored status' }); } catch(err){ setStatus('Restore failed', 'error'); STX.toast({ type:'error', text: err.message || 'Restore failed' }); } }
-      async function discard(){ try { setStatus('Discarding...', ''); const res = await STX.fetchJSON('cancel_transfer', { transfer_id: tid, simulate: 1 }); setStatus('Discarded', 'ok'); setDraft(false); STX.toast({ type:'success', text:'Draft discarded (simulation)' }); } catch(err){ setStatus('Discard failed', 'error'); STX.toast({ type:'error', text: err.message || 'Discard failed' }); } }
+      async function acquire(){
+        try {
+          const res = await STX.fetchJSON('acquire_lock', { transfer_id: tid });
+          const ro = !!res?.data?.read_only;
+          const ownerName = res?.data?.owner?.name || '';
+          setReadOnly(ro, ro ? ownerName : '');
+          reqLockBtn.style.display = ro ? '' : 'none';
+        } catch(_) { setReadOnly(true); }
+      }
+      async function heartbeat(){ try { await STX.fetchJSON('heartbeat_lock', { transfer_id: tid }); } catch(_){} }
+      async function saveNow(){ if (readOnly) return; try { setStatus('Saving…','busy'); const payload = { transfer_id: tid, items: JSON.stringify(window.STXPack?.collectItems ? STXPack.collectItems() : {}) }; await STX.fetchJSON('save_progress', payload); setStatus('Saved Live',''); } catch(err){ setStatus('Save failed','busy'); } }
+      function scheduleSave(){ clearTimeout(typingTimer); setStatus('Saving…','busy'); typingTimer = setTimeout(saveNow, 600); }
 
-      saveBtn?.addEventListener('click', (e)=>{ e.preventDefault(); saveNow(); });
-      restoreBtn?.addEventListener('click', (e)=>{ e.preventDefault(); restore(); });
-      discardBtn?.addEventListener('click', (e)=>{ e.preventDefault(); discard(); });
+      // Input listeners for live-save
+      root.addEventListener('input', (e)=>{ if(e.target.closest('[data-behavior="counted-input"]')) scheduleSave(); });
 
-      // Ctrl+S
-      document.addEventListener('keydown', (e)=>{ if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); saveNow(); }});
+      // Request lock button
+      reqLockBtn?.addEventListener('click', async ()=>{ try { await STX.fetchJSON('request_lock', { transfer_id: tid }); reqLockBtn.disabled = true; reqLockBtn.textContent = 'Requested…'; } catch(_){}});
 
-      // Autosave toggle
-      autosaveCk?.addEventListener('change', ()=>{
-        if (autosaveCk.checked){ setStatus('Autosave On', ''); autosaveTimer = setInterval(()=> saveNow(), 15000); }
-        else { setStatus('Autosave Off', ''); if (autosaveTimer){ clearInterval(autosaveTimer); autosaveTimer = null; } }
-      });
+      // Poll for lock changes
+      setInterval(async ()=>{
+        try {
+          const pl = await STX.fetchJSON('poll_lock', { transfer_id: tid });
+          const lock = pl?.data?.lock || {};
+          if (lock && lock.owner_user_id && !readOnly) {
+            // still owner, ensure UI shows editing
+            setReadOnly(false, ''); reqLockBtn.style.display='none';
+          } else if (lock && lock.owner_user_id) {
+            setReadOnly(true, lock.owner_name || 'another user');
+            reqLockBtn.style.display='';
+          } else {
+            setReadOnly(false, '');
+            reqLockBtn.style.display='none';
+          }
+        } catch(_){}
+      }, 5000);
 
-      // Initial status fetch
-      restore();
+      // Acquire on load and start heartbeat
+      acquire(); hbTimer = setInterval(heartbeat, 30000);
+
+      // Release on unload (best-effort)
+      window.addEventListener('beforeunload', ()=>{ try{ navigator.sendBeacon && navigator.sendBeacon('/modules/transfers/stock/ajax/handler.php?ajax_action=release_lock', new URLSearchParams({ transfer_id: tid, csrf: (document.querySelector('input[name="csrf"]').value||'') })); }catch(_){}}
+      );
     })();
 
     // Options: Add Products modal
@@ -93,6 +128,13 @@
       if (moreBtn) { moreBtn.disabled = (items.length < currentLimit); }
     }
     async function doSearch(q){
+      // Preflight guards
+      if (!tid){
+        if (resultsTbody){ resultsTbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">Missing transfer ID</td></tr>'; }
+        if (moreBtn) moreBtn.disabled = true;
+        return;
+      }
+      if (!q || q.length < 2){ renderResults([]); return; }
       try{
         const seq = ++lastSeq; lastQuery = q; const limit = currentLimit; const instock = !!inStockOnly?.checked;
         const res = await STX.fetchJSON('search_products', { transfer_id: tid, q, limit });
@@ -101,7 +143,8 @@
         const filtered = instock ? items.filter(r=> Number(r.stock||0) > 0) : items;
         renderResults(filtered, q);
       }catch(err){
-        resultsTbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">Search failed</td></tr>';
+        const msg = (err && err.message) ? String(err.message) : 'Search failed';
+        if (resultsTbody){ resultsTbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">'+STX.escapeHtml(msg)+'</td></tr>'; }
         if (moreBtn) { moreBtn.disabled = true; }
       }
     }
@@ -216,8 +259,7 @@
         <td>${STX.escapeHtml(to)}</td>
         <td><span class='id-counter'>${STX.escapeHtml(String(tidForCounter))}-${idx}</span></td>`;
       tbody.appendChild(tr);
-      const initial = parseInt(document.getElementById('stx-add-initial-counted')?.value||'',10);
-      if (!isNaN(initial) && initial>=0){ const inp = tr.querySelector('[data-behavior="counted-input"]'); if (inp){ inp.value = String(Math.min(initial, stock)); inp.dispatchEvent(new Event('input', { bubbles:true })); } }
+      // No initial-counted auto-seeding (field removed)
       ensureTable().then(()=>{ if (window.STXPack) { /* recalc handled by items.table.js on input */ } });
       return true;
     }

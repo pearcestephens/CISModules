@@ -10,8 +10,15 @@ if ($tid <= 0) jresp(false, 'transfer_id required', 400);
 if (strlen($q) < 2) jresp(true, ['items' => [], 'query' => $q, 'limit' => $limit]);
 
 try {
-  if (!function_exists('cis_pdo')) { jresp(false, 'DB unavailable', 500); }
-  $pdo = cis_pdo();
+  // Prefer cis_pdo, fallback to stx_pdo if available; return empty success when DB not available (avoid UI red error)
+  $pdo = null;
+  if (function_exists('cis_pdo')) { $pdo = cis_pdo(); }
+  elseif (function_exists('stx_pdo')) { $pdo = stx_pdo(); }
+  if (!$pdo) { jresp(true, ['items'=>[], 'query'=>$q, 'limit'=>$limit]); }
+  // Optional: check required tables exist; if not, return empty
+  if (function_exists('stx_table_exists')) {
+    if (!stx_table_exists($pdo, 'vend_products')) { jresp(true, ['items'=>[], 'query'=>$q, 'limit'=>$limit]); }
+  }
   // Determine source outlet (from) from transfers or legacy stock_transfers
   $fromId = null;
   try {

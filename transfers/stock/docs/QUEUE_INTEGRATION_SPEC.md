@@ -4,6 +4,8 @@ Author: Operations + Engineering
 Scope: Align CIS Stock module with Lightspeed X-Series Consignments via our Queue service.
 URLs are absolute to https://staff.vapeshed.co.nz.
 
+Note: As of 2025-09-24, the printer/pack UI uses a simplified “final form” and signals carrier availability strictly from vend_outlets tokens (no env fallbacks). See PACK_QUICKSTART.md for UI details.
+
 ---
 
 ## 1) Intake and Orchestration

@@ -86,6 +86,6 @@ If you want, I can spin up a small styleguide page that renders each component i
 ---
 
 See also:
-- REFERENCE_MAP: `/modules/transfers/stock/docs/REFERENCE_MAP.md` (DOM IDs, classes, JS functions)
-- CHANGELOG: `/modules/transfers/stock/docs/CHANGELOG.md` (what changed and when)
-- KNOWLEDGE_BASE: `/modules/transfers/stock/docs/KNOWLEDGE_BASE.md` (architecture and FAQs)
+- REFERENCE_MAP: https://staff.vapeshed.co.nz/modules/transfers/stock/docs/REFERENCE_MAP.md (DOM IDs, classes, JS functions)
+- CHANGELOG: https://staff.vapeshed.co.nz/modules/transfers/stock/docs/CHANGELOG.md (what changed and when)
+- KNOWLEDGE_BASE: https://staff.vapeshed.co.nz/modules/transfers/stock/docs/KNOWLEDGE_BASE.md (architecture and FAQs)

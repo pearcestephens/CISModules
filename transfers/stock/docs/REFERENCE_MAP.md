@@ -57,3 +57,9 @@ A quick lookup for DOM IDs, CSS classes, and JS entry points used across the das
 - get_activity: { items:[{ transfer_id, state, latest_at, from, to, from_name?, to_name?, flag_count }] }
 
 Tip: Grep for `stx-` to find everything at once.
+
+## Related Template Routes
+- Pack: https://staff.vapeshed.co.nz/modules/module.php?module=transfers/stock&view=pack&transfer={id}
+- Outgoing: https://staff.vapeshed.co.nz/modules/module.php?module=transfers/stock&view=outgoing
+
+Always use absolute URLs under https://staff.vapeshed.co.nz when linking from docs.

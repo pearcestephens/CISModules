@@ -1,5 +1,13 @@
 # Changelog – Stock Transfers Dashboard
 
+## 2025-09-24
+- Printer/Pack simplification: descriptive header shows transfer type, route (From → To), and ID.
+- Lock banner: explicit editor control state (Idle/Saving/Read-only) with Request Edit flow; auto-release on unload.
+- Live feedback: “Saving…” blinks on input/change; reverts to “Idle” after debounce.
+- Final form layout on printer page: Summary (SKUs, Units, Est Weight, Est Boxes, Total Cost placeholder), Delivery Method with Box Slips, Notes, Shipping & Labels steps, Finalise (Mark Ready).
+- Token policy: carrier availability (NZ Post/GSS) now sourced strictly from vend_outlets; environment/wrapper fallbacks removed from the availability check.
+- Product search hardened: empty-success fallback when DB helpers/tables are unavailable to avoid noisy UI failures in dev.
+
 ## 2025-09-22
 - Centralized action logging: every AJAX action recorded in transfer_logs + transfer_audit_log
 - Added audit before/after snapshots for key actions (set_status, cancel, finalize_pack, receive_partial/final, delete)

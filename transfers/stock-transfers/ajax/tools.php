@@ -469,8 +469,10 @@ if (!function_exists('gssCreateShipment_wrapped')) {
       $pdo = stx_pdo();
       $transfer = stx_fetch_transfer($pdo, $transferId);
       if (!$transfer) return ['success'=>false,'error'=>'Transfer not found'];
-      $toOutletId = (string)$transfer['outlet_to'];
-      $dest = stx_fetch_outlet($pdo, $toOutletId);
+  $toOutletId = (string)$transfer['outlet_to'];
+  $fromOutletId = (string)($transfer['outlet_from'] ?? '');
+  $dest = stx_fetch_outlet($pdo, $toOutletId);
+  $origin = $fromOutletId !== '' ? stx_fetch_outlet($pdo, $fromOutletId) : null;
       if (!$dest) return ['success'=>false,'error'=>'Destination outlet not found'];
 
       // Build GSS payload: Origin null (account default), Destination from vend_outlets
@@ -506,10 +508,11 @@ if (!function_exists('gssCreateShipment_wrapped')) {
       if (!$pkgList) { $pkgList = [[ 'Name'=>'Packaging','Length'=>30,'Width'=>20,'Height'=>10,'Kg'=>2.0 ]]; }
 
       if (class_exists('GSSClient')) {
-        // Prefer sender/outbound outlet gss_token when available; fallback to destination then env
+        // Tokens must come from vend_outlets only (origin preferred, then destination)
         $gssKey = (string)($origin['gss_token'] ?? '') ?: (string)($dest['gss_token'] ?? '');
         $supportEmail = (string)($origin['email'] ?? ($dest['email'] ?? ''));
-        $client = $gssKey !== '' ? new GSSClient($gssKey, null, $supportEmail) : new GSSClient();
+        // If no token is present in vend_outlets, do not attempt env/wrapper fallbacks
+        $client = $gssKey !== '' ? new GSSClient($gssKey, null, $supportEmail) : new GSSClient(null, null, $supportEmail);
         if ($client->isConfigured()) {
           $payload = [
             'Origin' => null,

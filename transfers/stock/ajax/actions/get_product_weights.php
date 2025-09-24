@@ -1,15 +1,17 @@
 <?php
 declare(strict_types=1);
 
-// Given transfer_id, return a map of product_id => weight_kg (float)
-// Tries vend_products.weight_grams, falls back to product attributes table patterns when present.
+/**
+ * Given transfer_id, return a map of product_id => unit_weight_grams (int)
+ * Precedence per Freight Bible: vend_products.avg_weight_grams
+ * then category_weights via product_classification_unified.category_id, else 100g.
+ */
 
 $tid = (int)($_POST['transfer_id'] ?? $_GET['transfer_id'] ?? 0);
 if ($tid <= 0) jresp(false, 'transfer_id required', 400);
 
 try {
-  if (!function_exists('cis_pdo')) { jresp(false, 'DB unavailable', 500); }
-  $pdo = cis_pdo();
+  $pdo = stx_db();
 
   // Gather product IDs for this transfer from canonical/legacy lines
   $pids = [];
@@ -28,31 +30,23 @@ try {
 
   $ids = array_keys($pids);
 
-  // Query vend_products for weight; prefer grams
+  // Query per-product unit grams with category fallback
   $weights = [];
   try {
     $in = implode(',', array_fill(0, count($ids), '?'));
-    $st = $pdo->prepare("SELECT id, COALESCE(weight_grams, weight, 0) AS w FROM vend_products WHERE id IN ($in)");
+    $sql = "SELECT vp.id,
+                   COALESCE(vp.avg_weight_grams, cw.avg_weight_grams, 100) AS g
+              FROM vend_products vp
+              LEFT JOIN product_classification_unified pcu ON pcu.product_id = vp.id
+              LEFT JOIN category_weights cw ON cw.category_id = pcu.category_id
+             WHERE vp.id IN ($in)";
+    $st = $pdo->prepare($sql);
     $st->execute($ids);
     while ($row = $st->fetch(PDO::FETCH_ASSOC)){
-      $g = (float)($row['w'] ?? 0);
-      $kg = $g > 10 ? ($g/1000.0) : $g; // if stored already in kg, leave; if grams, convert (assume >10 means grams)
-      $weights[(string)$row['id']] = max(0.0, $kg);
+      $g = (int)($row['g'] ?? 100);
+      $weights[(string)$row['id']] = max(1, $g);
     }
   } catch (Throwable $e) { /* ignore */ }
-
-  // Optional: attributes table variants (best-effort)
-  if (empty($weights)){
-    try {
-      $in = implode(',', array_fill(0, count($ids), '?'));
-      $st = $pdo->prepare("SELECT product_id, COALESCE(weight_kg, weight, 0) AS w FROM product_attributes WHERE product_id IN ($in)");
-      $st->execute($ids);
-      while ($row = $st->fetch(PDO::FETCH_ASSOC)){
-        $kg = (float)($row['w'] ?? 0);
-        $weights[(string)$row['product_id']] = max(0.0, $kg);
-      }
-    } catch (Throwable $e) { /* ignore */ }
-  }
 
   jresp(true, ['weights'=>$weights]);
 } catch (Throwable $e) {

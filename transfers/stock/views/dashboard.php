@@ -61,6 +61,44 @@ if ($csrfToken === '') { $csrfToken = bin2hex(random_bytes(16)); $_SESSION['csrf
       </div>
     </div>
 
+    <div class="row align-items-stretch">
+      <div class="col-lg-8 mb-2">
+        <div class="card shadow-sm h-100">
+          <div class="card-header py-2 d-flex align-items-center justify-content-between">
+            <small class="text-muted text-uppercase">Freight & Weight Overview</small>
+            <div class="btn-group btn-group-sm" role="group">
+              <button class="btn btn-outline-secondary" id="fw-refresh">Refresh</button>
+            </div>
+          </div>
+          <div class="card-body py-2">
+            <div id="fw-totals" class="mb-2 small text-muted">Loading…</div>
+            <div class="table-responsive">
+              <table class="table table-sm table-striped">
+                <thead><tr><th>Carrier</th><th class="text-right">Transfers</th><th class="text-right">Total kg</th><th class="text-right">Est. Boxes</th><th class="text-right">Est. Cost</th></tr></thead>
+                <tbody id="fw-by-carrier"><tr><td colspan="5">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-4 mb-2">
+        <div class="card shadow-sm h-100">
+          <div class="card-header py-2 d-flex align-items-center justify-content-between">
+            <small class="text-muted text-uppercase">Heaviest Transfers</small>
+            <span class="small text-muted" id="fw-updated"></span>
+          </div>
+          <div class="card-body py-2">
+            <div class="table-responsive" style="max-height:240px; overflow:auto;">
+              <table class="table table-sm table-striped mb-0">
+                <thead><tr><th>ID</th><th class="text-right">kg</th></tr></thead>
+                <tbody id="fw-heaviest"><tr><td colspan="2">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="card shadow-sm">
       <div class="card-header py-2 d-flex align-items-center justify-content-between">
         <small class="text-muted text-uppercase">Find / Search All Transfers</small>
@@ -132,11 +170,17 @@ if ($csrfToken === '') { $csrfToken = bin2hex(random_bytes(16)); $_SESSION['csrf
         $abs = $_SERVER['DOCUMENT_ROOT'] . $rel;
         try { return is_file($abs) ? (string)filemtime($abs) : (string)time(); } catch (Throwable $e) { return (string)time(); }
       };
-      $css_v = $__v('/modules/transfers/stock/assets/css/dashboard.css');
+      $tokens_v = $__v('/modules/_shared/assets/css/cis-tokens.css');
+      $utils_v = $__v('/modules/_shared/assets/css/cis-utilities.css');
+  $css_v = $__v('/modules/transfers/stock/assets/css/dashboard.css');
+  $stxui_v = $__v('/modules/transfers/stock/assets/css/stx-ui.css');
       $core_v = $__v('/modules/transfers/stock/assets/js/core.js');
       $dash_v = $__v('/modules/transfers/stock/assets/js/dashboard.js');
     ?>
-    <?php tpl_style('/modules/transfers/stock/assets/css/dashboard.css?v=' . $css_v); ?>
+    <?php tpl_style('/modules/_shared/assets/css/cis-tokens.css?v=' . $tokens_v); ?>
+    <?php tpl_style('/modules/_shared/assets/css/cis-utilities.css?v=' . $utils_v); ?>
+  <?php tpl_style('/modules/transfers/stock/assets/css/dashboard.css?v=' . $css_v); ?>
+  <?php tpl_style('/modules/transfers/stock/assets/css/stx-ui.css?v=' . $stxui_v); ?>
     <?php tpl_script('/modules/transfers/stock/assets/js/core.js?v=' . $core_v, ['defer' => true]); ?>
     <?php tpl_script('/modules/transfers/stock/assets/js/dashboard.js?v=' . $dash_v, ['defer' => true]); ?>
     <?php tpl_render_styles(); ?>

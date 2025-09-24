@@ -6,8 +6,9 @@ This guide summarizes how to access, use, and verify the Pack page within the CI
 
 - Preferred (CIS Template):
   - https://staff.vapeshed.co.nz/modules/module.php?module=transfers/stock&view=pack&transfer={ID}
-- Direct dev endpoint (debug only):
+- Direct dev endpoint (debug only, may lack CIS chrome):
   - https://staff.vapeshed.co.nz/modules/transfers/stock/pack.php?transfer={ID}
+  - Note: For production use, always prefer the CIS Template route above.
 
 Notes:
 - The CIS template renders the Pack view with a compact, dashboard-style UI. The meta file intentionally leaves the top title/subtitle blank to avoid duplicate headers.
@@ -30,14 +31,15 @@ Notes:
 - Enforce server guard (block send/finalize): set `TRANSFERS_STOCK_PACKONLY=1` in the environment.
 - Optional visual banner: add `&packonly=1` to the Pack URL.
 
-## Printers — Status & Tokens
+## Printers — Status & Tokens (policy)
 
 - Status endpoint: https://staff.vapeshed.co.nz/modules/transfers/stock/ajax/handler.php?ajax_action=get_printers_config (POST)
   - Returns: `{ success, data: { has_nzpost, has_gss, default }, request_id }`
   - Requires CSRF unless using internal token bypass in non-prod.
-- Enable carriers:
-  - NZ Post: set `NZPOST_TOKEN` or `NZPOST_SUBSCRIPTION_KEY`, or provide `createNzPostLabel_wrapped()`.
-  - GoSweetSpot: set `GSS_TOKEN`, or provide `createGssLabel_wrapped()`.
+- Enable carriers (enforced source = vend_outlets only):
+  - NZ Post / NZ Couriers tokens are sourced exclusively from `vend_outlets` rows for the current outlet context.
+  - Environment/wrapper fallbacks have been removed from availability signalling to prevent misconfiguration.
+  - If an outlet lacks a token, chips will show “Unavailable”; printing UIs should degrade gracefully.
 - Label creation:
   - NZ Post:  https://staff.vapeshed.co.nz/modules/transfers/stock/ajax/handler.php?ajax_action=create_label_nzpost
   - GSS:      https://staff.vapeshed.co.nz/modules/transfers/stock/ajax/handler.php?ajax_action=create_label_gss
@@ -48,7 +50,7 @@ Notes:
 1) Navigate to the template Pack URL with a valid transfer ID.
 2) Confirm one compact header and sticky items table are visible.
 3) Verify items display with product names and planned quantities.
-4) Confirm network request to `get_printers_config` returns availability based on tokens/wrappers.
+4) Confirm network request to `get_printers_config` returns availability based on vend_outlets tokens (no env fallbacks).
 5) Test manual tracking save to verify non-label flow works.
 
 ## Notes

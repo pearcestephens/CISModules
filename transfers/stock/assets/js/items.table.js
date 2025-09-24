@@ -52,7 +52,8 @@
 
   window.STXTable = { recalc };
 })();
-/* items.table.js (stock path, migrated) */
+
+// Simplified: calculations only; saving handled by live toolbar
 (function(){
 	const root = document.querySelector('.stx-outgoing'); if(!root) return;
 	const table = root.querySelector('.stx-table') || document;
@@ -68,38 +69,6 @@
 		if (cEl) cEl.textContent = counted.toFixed(0);
 		const d = planned - counted; const dEl = root.querySelector('#diffTotal'); if (dEl){ dEl.textContent = d.toFixed(0); dEl.classList.toggle('text-danger', d!==0); dEl.classList.toggle('text-success', d===0); }
 	}
-
-	const STORAGE_KEY = 'stx-pack-draft-' + (document.getElementById('transferID')?.value || '');
-
-	function serializeDraft(){
-		const rows=[];
-		table.querySelectorAll('tbody tr').forEach(tr=>{
-			const pid = tr.querySelector('.productID')?.value||'';
-			const planned = parseFloat(tr.getAttribute('data-planned')||'0')||0;
-			const counted = parseFloat(tr.querySelector('[data-behavior="counted-input"]')?.value||'0')||0;
-			if (pid) rows.push({ pid, planned, counted });
-		});
-		return { rows };
-	}
-
-	function applyDraft(d){
-		if (!d || !Array.isArray(d.rows)) return;
-		d.rows.forEach(item=>{
-			const tr = table.querySelector('tbody tr .productID[value="'+CSS.escape(item.pid)+'"]')?.closest('tr');
-			if (!tr) return;
-			const inp = tr.querySelector('[data-behavior="counted-input"]');
-			if (inp){ inp.value = String(item.counted||0); }
-		});
-		recalc();
-	}
-
-	function setDraftIndicator(on){
-		const el = document.getElementById('stx-draft-indicator'); if (el) el.textContent = on ? 'On' : 'Off';
-	}
-
-	function saveDraft(){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeDraft())); setDraftIndicator(true); }catch(e){} }
-	function clearDraft(){ try{ localStorage.removeItem(STORAGE_KEY); setDraftIndicator(false); }catch(e){} }
-	function restoreDraft(){ try{ const d=JSON.parse(localStorage.getItem(STORAGE_KEY)||'null'); if(d){ applyDraft(d); } }catch(e){} }
 
 	table.addEventListener('input', (e)=>{ if(e.target.closest('[data-behavior="counted-input"]')) recalc(); });
 	table.addEventListener('click', (e)=>{
@@ -124,17 +93,8 @@
 			if (inp) inp.value = String(planned);
 		});
 		recalc();
-		if (document.getElementById('stx-autosave')?.checked) saveDraft();
 	});
 
-	// Save/Restore/Discard/Autosave
-	document.getElementById('stx-save')?.addEventListener('click', ()=> saveDraft());
-	document.getElementById('stx-restore')?.addEventListener('click', ()=> restoreDraft());
-	document.getElementById('stx-discard')?.addEventListener('click', ()=> { clearDraft(); restoreDraft(); });
-	document.getElementById('stx-autosave')?.addEventListener('change', ()=>{ if (document.getElementById('stx-autosave').checked) saveDraft(); });
-	document.addEventListener('keydown', (e)=>{ if ((e.ctrlKey||e.metaKey) && (e.key==='s' || e.key==='S')){ e.preventDefault(); saveDraft(); }});
-
 	document.addEventListener('DOMContentLoaded', recalc);
-	// Initialize indicator and attempt restore
-	(function initDraft(){ try{ const has = !!localStorage.getItem(STORAGE_KEY); setDraftIndicator(has); if (has) restoreDraft(); }catch(e){} })();
+
 })();

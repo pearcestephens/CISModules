@@ -1,5 +1,141 @@
 <?php
 declare(strict_types=1);
+/**
+ * File: modules/transfers/stock/views/pack.php
+ * Purpose: Stock Transfer Pack — Final Form view. Renders within CIS template.
+ * Author: CIS Auto-Build
+ * Last Modified: 2025-09-24
+ * Dependencies: requires app.php; AJAX at modules/transfers/stock/ajax/handler.php
+ */
+
+require_once $_SERVER['DOCUMENT_ROOT'] . '/app.php';
+
+$transferId = isset($_GET['transfer']) ? trim((string)$_GET['transfer']) : '';
+if ($transferId === '') {
+    echo '<div class="alert alert-danger">Missing transfer id.</div>';
+    return;
+}
+
+// CSRF token exposure (best-effort; actual validation in handler)
+$csrfToken = isset($_SESSION['csrf']) ? (string)$_SESSION['csrf'] : '';
+
+?>
+<div class="stx-pack" id="stx-pack" data-transfer-id="<?=htmlspecialchars($transferId)?>" data-csrf="<?=htmlspecialchars($csrfToken)?>">
+  <header class="stx-pack__header">
+    <div class="stx-pack__title">Stock Transfer — Pack</div>
+    <div class="stx-pack__meta">
+      <span class="stx-pack__route" id="stx-route">Loading…</span>
+      <span class="stx-pack__id" id="stx-transfer-id"></span>
+      <span class="stx-pack__status" id="stx-status" aria-live="polite">Idle</span>
+    </div>
+  </header>
+
+  <div class="stx-lock" id="stx-lock" role="status" aria-live="polite">
+    <span id="stx-lock-state">Checking lock…</span>
+    <button class="btn btn-sm btn-outline-primary d-none" id="btn-request-edit">Request Edit</button>
+  </div>
+
+  <section class="stx-summary" aria-labelledby="sum-h">
+    <h3 id="sum-h">Summary</h3>
+    <div class="stx-kv">
+      <div class="kv"><span class="k">SKUs</span><span class="v" id="sum-skus">—</span></div>
+      <div class="kv"><span class="k">Units</span><span class="v" id="sum-units">—</span></div>
+      <div class="kv"><span class="k">Estimated Weight</span><span class="v" id="sum-weight">—</span></div>
+      <div class="kv"><span class="k">Estimated Boxes</span><span class="v" id="sum-boxes">—</span></div>
+      <div class="kv"><span class="k">Total Cost Value</span><span class="v" id="sum-cost">—</span></div>
+    </div>
+  </section>
+
+  <section class="stx-table" aria-labelledby="tbl-h">
+    <h3 id="tbl-h">Items</h3>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>SKU</th>
+            <th class="text-end">Qty</th>
+            <th class="text-end">Supply Cost</th>
+            <th class="text-end">Line Cost</th>
+          </tr>
+        </thead>
+        <tbody id="items-body">
+          <tr><td colspan="5">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="stx-delivery" aria-labelledby="deliv-h">
+    <h3 id="deliv-h">Delivery Method</h3>
+    <div class="stx-chips mb-2">
+      <span class="chip chip--nzpost d-none" id="chip-nzpost">NZ Post</span>
+      <span class="chip chip--gss d-none" id="chip-gss">NZ Couriers (GSS)</span>
+      <span class="chip chip--manual" id="chip-manual">Manual</span>
+    </div>
+    <div class="row g-3">
+      <div class="col-12 col-md-7">
+        <div class="mt-0">
+          <div class="row g-2 align-items-center">
+            <div class="col-auto">
+              <label for="stx-boxes-input" class="col-form-label">Box count (optional)</label>
+            </div>
+            <div class="col-auto">
+              <input type="number" id="stx-boxes-input" class="form-control form-control-sm" min="1" step="1" placeholder="auto" />
+            </div>
+            <div class="col-auto">
+              <small class="text-muted">Defaults from weight estimate; you can override here.</small>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-secondary mt-2" id="btn-print-box-slips">Print Box Slips</button>
+        </div>
+      </div>
+      <div class="col-12 col-md-5">
+        <div class="stx-shipping-summary" aria-labelledby="ship-h">
+          <h4 id="ship-h" class="h6 mb-2">Shipping Summary</h4>
+          <div id="ship-summary" class="card card-body p-2">
+            <div class="small text-muted">Calculating…</div>
+            <div class="row g-2 align-items-center mt-1">
+              <div class="col-auto"><strong>Total Weight:</strong> <span id="ship-total-kg">—</span></div>
+              <div class="col-auto"><strong>Best Option:</strong> <span id="ship-best">—</span></div>
+            </div>
+            <div class="mt-2">
+              <button class="btn btn-sm btn-outline-primary" id="btn-refresh-shipping">Refresh</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="stx-notes" aria-labelledby="notes-h">
+    <h3 id="notes-h">Notes</h3>
+    <div class="mb-2">
+      <textarea id="note-text" class="form-control" rows="2" placeholder="Add a note…"></textarea>
+      <div class="d-flex justify-content-between align-items-center mt-1">
+        <button class="btn btn-sm btn-primary" id="btn-add-note">Add Note</button>
+        <small id="save-indicator" class="text-muted">Idle</small>
+      </div>
+    </div>
+    <ul class="list-group" id="notes-list" aria-live="polite"></ul>
+  </section>
+
+  <section class="stx-finalise" aria-labelledby="final-h">
+    <h3 id="final-h">Finalise</h3>
+    <button class="btn btn-success" id="btn-mark-ready">Mark Ready</button>
+  </section>
+</div>
+
+<script>
+  window.__STX_PACK__ = {
+    ajaxBase: 'https://staff.vapeshed.co.nz/modules/transfers/stock/ajax/handler.php'
+  };
+</script>
+<?php
+// Assets are enqueued via views/pack.meta.php (CIS template reads it)
+?>
+<?php
+declare(strict_types=1);
 require_once $_SERVER['DOCUMENT_ROOT'] . '/modules/_shared/template.php';
 
 // Minimal DB-backed loader for pack view compatibility

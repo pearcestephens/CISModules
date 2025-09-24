@@ -51,6 +51,9 @@ All writes must be parameterized via project DB wrappers. Add indexes on (suppli
 - Structured logs with correlation_id/request_id across UI, API, and queue jobs.
 - Metrics: counts and latency for create/send/receive/invoice, error rates, and match outcomes.
 - Health checks: https://staff.vapeshed.co.nz/modules/purchase-orders/api/v1/health (200 OK)
+- UI Router examples:
+  - Receive: https://staff.vapeshed.co.nz/modules/module.php?module=purchase-orders&view=receive
+  - Admin:   https://staff.vapeshed.co.nz/modules/module.php?module=purchase-orders&view=admin
 
 ## Integration
 

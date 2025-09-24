@@ -1,5 +1,32 @@
 <?php
 declare(strict_types=1);
+/**
+ * View Meta: transfers/stock:pack
+ */
+
+$transferId = isset($_GET['transfer']) ? trim((string)$_GET['transfer']) : '';
+
+return [
+    'title' => 'Pack Stock Transfer',
+    'subtitle' => $transferId !== '' ? ('Transfer #' . htmlspecialchars($transferId)) : 'Transfer',
+    'breadcrumb' => [
+        ['label' => 'Home', 'href' => 'https://staff.vapeshed.co.nz/'],
+        ['label' => 'Transfers', 'href' => 'https://staff.vapeshed.co.nz/modules/transfers/dashboard.php'],
+        ['label' => 'Stock', 'href' => 'https://staff.vapeshed.co.nz/modules/transfers/stock/dashboard.php'],
+        ['label' => 'Pack']
+    ],
+    'layout' => 'plain',
+    'assets' => [
+        'css' => [
+            'https://staff.vapeshed.co.nz/modules/transfers/stock/assets/css/pack.css'
+        ],
+        'js' => [
+            ['https://staff.vapeshed.co.nz/modules/transfers/stock/assets/js/pack.js', ['defer' => true]]
+        ]
+    ],
+];
+<?php
+declare(strict_types=1);
 $__tid_keys = ['transfer','transfer_id','id','tid','t'];
 $tid = 0; foreach ($__tid_keys as $__k) { if (isset($_GET[$__k]) && (int)$_GET[$__k] > 0) { $tid = (int)$_GET[$__k]; break; } }
 

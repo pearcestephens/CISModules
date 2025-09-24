@@ -20,6 +20,12 @@
     bulkDelete: ()=>document.getElementById('stx-bulk-delete'),
     bulkSelectAllBtn: ()=>document.getElementById('stx-bulk-select-all'),
     bulkSelectNoneBtn: ()=>document.getElementById('stx-bulk-select-none'),
+    // Freight widgets
+    fwTotals: ()=>document.getElementById('fw-totals'),
+    fwByCarrier: ()=>document.getElementById('fw-by-carrier'),
+    fwHeaviest: ()=>document.getElementById('fw-heaviest'),
+    fwUpdated: ()=>document.getElementById('fw-updated'),
+    fwRefresh: ()=>document.getElementById('fw-refresh'),
   };
 
   let CURRENT = { page: 1, pageSize: 50, group: 'open', totalPages: 1 };
@@ -316,6 +322,32 @@
   }
 
   window.STXDash = { loadStats, loadList, loadOpen };
+  async function loadFreightWidgets(){
+    try{
+      const res = await STX.fetchJSON('get_freight_widgets', { state_group: 'open', limit: 50 });
+      const d = res.data||{};
+      if (EL.fwTotals()) {
+        const t = d.totals||{};
+        EL.fwTotals().innerHTML = `Transfers: <strong>${t.transfers||0}</strong> · Units: <strong>${t.units||0}</strong> · Total: <strong>${(t.kg||0).toFixed? (t.kg).toFixed(2) : t.kg} kg</strong> · Est. Boxes: <strong>${t.est_boxes||0}</strong>`;
+      }
+      if (EL.fwByCarrier()){
+        const rows = (d.by_carrier||[]).map(c=>{
+          const cost = c.est_cost==null? '—' : `$${Number(c.est_cost||0).toFixed(2)}`;
+          return `<tr><td>${c.name||c.code||''}</td><td class="text-right">${c.count||0}</td><td class="text-right">${Number(c.kg||0).toFixed(2)}</td><td class="text-right">${c.est_boxes||0}</td><td class="text-right">${cost}</td></tr>`;
+        });
+        EL.fwByCarrier().innerHTML = rows.length? rows.join('') : '<tr><td colspan="5">No data</td></tr>';
+      }
+      if (EL.fwHeaviest()){
+        const rows = (d.top_heaviest||[]).map(h=>`<tr><td><a href="/modules/transfers/stock/pack.php?transfer=${h.transfer_id}">#${h.transfer_id}</a></td><td class="text-right">${Number(h.kg||0).toFixed(2)}</td></tr>`);
+        EL.fwHeaviest().innerHTML = rows.length? rows.join('') : '<tr><td colspan="2">No data</td></tr>';
+      }
+      if (EL.fwUpdated()) EL.fwUpdated().textContent = d.updated_at||'';
+    }catch(e){
+      if (EL.fwTotals()) EL.fwTotals().textContent = 'Failed to load freight widgets';
+      if (EL.fwByCarrier()) EL.fwByCarrier().innerHTML = '<tr><td colspan="5">Error</td></tr>';
+      if (EL.fwHeaviest()) EL.fwHeaviest().innerHTML = '<tr><td colspan="2">Error</td></tr>';
+    }
+  }
   // DOMContentLoaded wiring handled below together with filters/typeahead/activity
     let ACTIVITY_CACHE = [];
     let ACTIVITY_SHOW = 20;
@@ -366,6 +398,9 @@
       });
       loadOpen();
       loadActivity(true);
+  // Freight widgets
+  loadFreightWidgets();
+  EL.fwRefresh()?.addEventListener('click', ()=> loadFreightWidgets());
       EL.activityRefresh()?.addEventListener('click', ()=>loadActivity(true));
       document.getElementById('stx-activity-more')?.addEventListener('click', ()=>{ ACTIVITY_SHOW += 20; renderActivity(); });
 

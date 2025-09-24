@@ -23,10 +23,6 @@
         </div>
         <div class="form-row align-items-end">
           <div class="form-group col-md-3">
-            <label for="stx-add-initial-counted">Initial counted (optional)</label>
-            <input type="number" min="0" class="form-control" id="stx-add-initial-counted" placeholder="e.g., 0">
-          </div>
-          <div class="form-group col-md-3">
             <div class="custom-control custom-checkbox mt-4">
               <input type="checkbox" class="custom-control-input" id="stx-add-instock">
               <label class="custom-control-label" for="stx-add-instock">In-stock only</label>

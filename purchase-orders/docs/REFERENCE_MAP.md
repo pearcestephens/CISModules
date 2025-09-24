@@ -5,7 +5,10 @@ A quick lookup for DOM IDs, CSS classes, JS entry points, and AJAX routes used a
 ## Views and DOM IDs
 
 ### index.php
-- Links only; routes to Receive and Admin. No interactive IDs.
+- Links only; routes to Receive and Admin via CIS Template router:
+  - Receive: https://staff.vapeshed.co.nz/modules/module.php?module=purchase-orders&view=receive
+  - Admin:   https://staff.vapeshed.co.nz/modules/module.php?module=purchase-orders&view=admin
+  - Always use absolute URLs under https://staff.vapeshed.co.nz
 
 ### receive.php
 - po-receive – container with data-po-id
