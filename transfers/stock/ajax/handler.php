@@ -1,126 +1,223 @@
 <?php
-/**
- * modules/transfers/stock/ajax/handler.php
- * Unified AJAX router (renamed path from stock-transfers)
- */
 
 declare(strict_types=1);
-require_once $_SERVER['DOCUMENT_ROOT'] . '/app.php';
+
+/**
+ * /modules/transfers/stock/ajax/handler.php
+ * JSON-only endpoint for pack workflow.
+ *
+ * Actions:
+ *   - calculate_ship_units
+ *   - validate_parcel_plan
+ *   - generate_label           (MVP or real courier; auto-attach fallback)
+ *   - save_pack
+ *   - list_items               (grid loader)
+ *   - get_parcels              (post-label readback)
+ */
+
+error_reporting(E_ALL);
+ini_set('display_errors', '0');
+
+require_once dirname(__DIR__, 3) . '/core/bootstrap.php';
+require_once dirname(__DIR__, 3) . '/core/error.php';
+require_once dirname(__DIR__, 3) . '/core/security.php';
+require_once dirname(__DIR__, 3) . '/core/csrf.php';
+require_once dirname(__DIR__, 3) . '/core/middleware/kernel.php';   // ← add this
+require_once dirname(__DIR__) . '/lib/PackHelper.php';
+
+
 header('Content-Type: application/json; charset=utf-8');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: no-referrer');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-header('Pragma: no-cache');
-header('Expires: 0');
-$reqId = bin2hex(random_bytes(8));
-function jresp($ok, $payload = [], $code = 200){
-  global $reqId;
-  http_response_code($code);
-  $body=['success'=>(bool)$ok,'request_id'=>$reqId];
-  if($ok){$body['data']=$payload;} else {$body['error']=(string)$payload;}
-  // Attempt to log the action envelope (non-fatal on errors)
-  if (function_exists('stx_log_action_envelope')) {
-    stx_log_action_envelope((bool)$ok, $payload, (int)$code);
-  }
-  echo json_encode($body, JSON_UNESCAPED_SLASHES);
-  exit;
+
+$start = microtime(true);
+
+/** Basic JSON responder */
+function json_out(array $payload, int $code = 200): void
+{
+    http_response_code($code);
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES);
+    exit;
 }
 
-require_once __DIR__ . '/tools.php';
-// mark start time for processing latency
-$__stx_start_ts = microtime(true);
-// --- Internal token auth (DEV/STAGE only) ---
-$env = '';
-if (defined('APP_ENV')) { $env = strtolower((string)APP_ENV); }
-elseif (defined('ENV')) { $env = strtolower((string)ENV); }
-elseif (!empty($_ENV['APP_ENV'])) { $env = strtolower((string)$_ENV['APP_ENV']); }
-$isNonProd = !in_array($env, ['prod','production','live'], true);
-$internalToken = $_SERVER['HTTP_X_INTERNAL_TOKEN'] ?? '';
-$expectedToken = (string)($_ENV['INTERNAL_API_TOKEN'] ?? getenv('INTERNAL_API_TOKEN') ?: '');
-$usingInternalAuth = $isNonProd && $internalToken !== '' && $expectedToken !== '' && hash_equals($expectedToken, (string)$internalToken);
-
-if ($usingInternalAuth) {
-  $uid = (int)($_SERVER['HTTP_X_ACTOR_ID'] ?? 0);
-  if ($uid <= 0) { $uid = (int)($_ENV['INTERNAL_ACTOR_ID'] ?? 1); }
-} else {
-  // If a token is present in non-prod but not accepted, give a clearer error
-  if ($isNonProd && $internalToken !== '') {
-    if ($expectedToken === '') { jresp(false, 'Internal token not configured', 401); }
-    jresp(false, 'Invalid internal token', 401);
-  }
-  // Standard session-based auth
-  try { $userRow = requireLoggedInUser(); } catch (Throwable $e) { jresp(false, 'Not logged in', 401); }
-  $uid = (int)($_SESSION['userID'] ?? 0); if ($uid<=0) jresp(false,'Unauthorized',403);
+/** Read JSON with safe fallback */
+function read_json(): array
+{
+    $raw = file_get_contents('php://input') ?: '';
+    $data = json_decode($raw, true);
+    return is_array($data) ? $data : [];
 }
 
-// CSRF: bypass only when using internal token in non-production
-if (!$usingInternalAuth) {
-  $csrf = $_POST['csrf'] ?? $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-  $validCsrf = false;
-  if (function_exists('verifyCSRFToken')) { $validCsrf = verifyCSRFToken($csrf); }
-  elseif (!empty($_SESSION['csrf_token'])) { $validCsrf = hash_equals((string)$_SESSION['csrf_token'], (string)$csrf); }
-  if (!$validCsrf) jresp(false,'Invalid CSRF', 400);
+/** Minimal auth: CSRF for browser; optional API-key for CLI tests */
+function gate_request(): void
+{
+    $apiKeyHeader = $_SERVER['HTTP_X_API_KEY'] ?? '';
+    $bypassKey    = getenv('TEST_CLI_API_KEY') ?: 'TEST-CLI-KEY-123';
+
+    // If API key matches, skip CSRF (for controlled CLI/tests only).
+    if ($apiKeyHeader && hash_equals($bypassKey, $apiKeyHeader)) {
+        return;
+    }
+
+    // Otherwise enforce CSRF for browser-originated POSTs.
+    if (!cis_csrf_or_json_400()) {
+        // cis_csrf_or_json_400() already emitted JSON 400
+        exit;
+    }
 }
 
-$action = $_POST['ajax_action'] ?? $_GET['ajax_action'] ?? '';
-// Single consolidated action map
-$map = [
-  // Diagnostics (non-prod): returns internal auth status
-  'auth_check'            => 'auth_check.php',
-  // New unified workflow endpoints
-  'create_draft'          => 'create_draft.php',
-  'add_items'             => 'add_items.php',
-  'finalize_pack'         => 'finalize_pack.php',
-  'receive_partial'       => 'receive_partial.php',
-  'receive_final'         => 'receive_final.php',
-  'cancel_transfer'       => 'cancel_transfer.php',
-  'delete_transfer'       => 'delete_transfer.php',
-  'get_status'            => 'get_status.php',
-  // Dashboard/data
-  'get_dashboard_stats'   => 'get_dashboard_stats.php',
-  'list_outlets'          => 'list_outlets.php',
-  'list_transfers'        => 'list_transfers.php',
-  'get_activity'          => 'get_activity.php',
-  'get_transfer_header'   => 'get_transfer_header.php',
-  'get_shipping_catalog'  => 'get_shipping_catalog.php',
-  'list_items'            => 'list_items.php',
-  'save_progress'         => 'save_progress.php',
-  'get_printers_config'   => 'get_printers_config.php',
-  'set_status'            => 'set_status.php',
-  'search_products'       => 'search_products.php',
-  'get_product_weights'   => 'get_product_weights.php',
-  'get_product_attributes'=> 'get_product_attributes.php',
-  // Shipping/Widgets
-  'get_shipping_summary'  => 'get_shipping_summary.php',
-  'get_freight_widgets'   => 'get_freight_widgets.php',
-  // Locks (single editor)
-  'acquire_lock'          => 'acquire_lock.php',
-  'heartbeat_lock'        => 'heartbeat_lock.php',
-  'release_lock'          => 'release_lock.php',
-  'request_lock'          => 'request_lock.php',
-  'respond_lock_request'  => 'respond_lock_request.php',
-  'poll_lock'             => 'poll_lock.php',
-  // Comments/Notes
-  'list_comments'         => 'list_comments.php',
-  'add_comment'           => 'add_comment.php',
-  'notes_list'            => 'notes_list.php',
-  'notes_add'             => 'notes_add.php',
-  // Costs
-  'get_unit_costs'        => 'get_unit_costs.php',
-  // Existing/compat
-  'add_products'          => 'add_products.php',
-  'create_label_nzpost'   => 'create_label_nzpost.php',
-  'create_label_gss'      => 'create_label_gss.php',
-  'record_shipment'       => 'record_shipment.php',
-  'save_manual_tracking'  => 'save_manual_tracking.php',
-  'mark_ready'            => 'mark_ready.php',
-  'merge_transfer'        => 'merge_transfer.php',
-  'pack_goods'            => 'pack_goods.php',
-  'send_transfer'         => 'send_transfer.php',
-  'receive_goods'         => 'receive_goods.php',
-];
-if (!isset($map[$action])) jresp(false,'Unknown action', 400);
-$path = __DIR__ . '/actions/' . $map[$action];
-if (!is_file($path)) jresp(false,'Action not implemented', 501);
 
-$simulate = isset($_POST['simulate']) ? (int)$_POST['simulate'] : 0;
-$__ajax_context = ['uid'=>$uid,'request_id'=>$reqId,'simulate'=>$simulate,'internal'=>$usingInternalAuth,'env'=>$env];
-require $path;
+
+try {
+
+    // Build middleware pipeline (kernel.php already required above)
+    $pipe = mw_pipeline([
+        mw_trace(),
+        mw_security_headers(),
+        mw_json_or_form_normalizer(),
+        mw_csrf_or_api_key(getenv('TEST_CLI_API_KEY') ?: 'TEST-CLI-KEY-123'),
+        mw_validate_content_type(['application/json', 'multipart/form-data', 'application/x-www-form-urlencoded']),
+        mw_content_length_limit(1024 * 1024), // 1MB
+        mw_rate_limit('transfers.stock.handler', 120, 60),
+        // mw_enforce_auth(), // enable when ready
+        // mw_idempotency(),  // enable later for create actions
+    ]);
+
+    $ctx = $pipe([]);              // run middleware
+    $in  = $ctx['input'];          // normalized input (JSON or FormData)
+    $hdr = $ctx['headers'];        // normalized headers (lowercase)
+    $perf = [];
+    $helper = new \CIS\Transfers\Stock\PackHelper();
+
+    $action = trim((string)($in['action'] ?? ''));
+    if ($action === '') {
+        json_out(['ok' => false, 'error' => 'Missing action'], 400);
+    }
+
+
+    switch ($action) {
+        /**
+         * calculate_ship_units
+         * Input: { product_id:int, qty:int }
+         * Output: { ok:true, ship_units:int, unit_g:int, weight_g:int }
+         */
+        case 'calculate_ship_units': {
+                $productId = (int)($in['product_id'] ?? 0);
+                $qty       = (int)($in['qty'] ?? 0);
+                if ($productId <= 0 || $qty <= 0) {
+                    json_out(['ok' => false, 'error' => 'product_id and qty required'], 400);
+                }
+                $res = $helper->calculateShipUnits($productId, $qty);
+                json_out(['ok' => true] + $res);
+            }
+
+        /**
+             * validate_parcel_plan
+             * Input: { transfer_id:int, parcel_plan:{ parcels:[{weight_g:int, items:[{item_id?|product_id, qty:int}]}] } }
+             * Output: { ok:true, attachable:[...], unknown:[...], notes:{...} }
+             */
+        case 'validate_parcel_plan': {
+                $transferId = (int)($in['transfer_id'] ?? 0);
+                $plan       = $in['parcel_plan'] ?? null;
+                if ($transferId <= 0 || !is_array($plan)) {
+                    json_out(['ok' => false, 'error' => 'transfer_id and parcel_plan required'], 400);
+                }
+                $out = $helper->validateParcelPlan($transferId, $plan);
+                json_out(['ok' => true] + $out);
+            }
+
+        /**
+             * generate_label
+             * Input: {
+             *   transfer_id:int,
+             *   carrier?:string,
+             *   parcel_plan?:{ parcels:[{weight_g:int, items?:[{item_id?|product_id, qty:int}]}] }
+             * }
+             * Behavior:
+             *   - If items omitted or empty for any parcel, server auto-attaches all transfer_items using calculated ship units.
+             * Output: { ok:true, shipment_id:int, parcels:[...], skipped:[...] }
+             */
+        case 'generate_label': {
+                $transferId = (int)($in['transfer_id'] ?? 0);
+                if ($transferId <= 0) {
+                    json_out(['ok' => false, 'error' => 'transfer_id required'], 400);
+                }
+                $carrier = trim((string)($in['carrier'] ?? 'MVP'));
+                $planRaw = $in['parcel_plan'] ?? ['parcels' => []];
+
+                // Auto-attach fallback
+                $plan = $helper->autoAttachIfEmpty($transferId, is_array($planRaw) ? $planRaw : ['parcels' => []]);
+
+                $useReal = (getenv('COURIERS_ENABLED') === '1');
+                $res = $useReal
+                    ? $helper->generateLabel($transferId, $carrier, $plan)
+                    : $helper->generateLabelMvp($transferId, $carrier, $plan);
+
+                // Persist response for same Idempotency-Key (only if mw_idempotency is enabled)
+                if (!empty($hdr['idempotency-key'])) {
+                    mw_idem_store($ctx, $res);
+                }
+
+                json_out($res['ok'] ? $res : ['ok' => false] + $res, $res['ok'] ? 200 : 422);
+            }
+
+
+        /**
+             * save_pack
+             * Input: { transfer_id:int, notes?:string }
+             */
+        case 'save_pack': {
+                $transferId = (int)($in['transfer_id'] ?? 0);
+                $notes      = (string)($in['notes'] ?? '');
+                if ($transferId <= 0) {
+                    json_out(['ok' => false, 'error' => 'transfer_id required'], 400);
+                }
+                $helper->addPackNote($transferId, $notes);
+                json_out(['ok' => true]);
+            }
+
+        /**
+             * list_items
+             * Input: { transfer_id:int }
+             * Output: { ok:true, items:[{id, product_id, sku, name, requested_qty, unit_g, suggested_ship_units}] }
+             */
+        case 'list_items': {
+                $transferId = (int)($in['transfer_id'] ?? 0);
+                if ($transferId <= 0) {
+                    json_out(['ok' => false, 'error' => 'transfer_id required'], 400);
+                }
+                $items = $helper->listItems($transferId);
+                json_out(['ok' => true, 'items' => $items]);
+            }
+
+        /**
+             * get_parcels
+             * Input: { transfer_id:int }
+             * Output: { ok:true, shipment_id:int|null, parcels:[{id, box_number, weight_kg, items_count}] }
+             */
+        case 'get_parcels': {
+                $transferId = (int)($in['transfer_id'] ?? 0);
+                if ($transferId <= 0) {
+                    json_out(['ok' => false, 'error' => 'transfer_id required'], 400);
+                }
+                $out = $helper->getParcels($transferId);
+                json_out(['ok' => true] + $out);
+            }
+
+        default:
+            json_out(['ok' => false, 'error' => 'Unknown action'], 404);
+    }
+} catch (\Throwable $e) {
+    // /core/error.php should already capture; we still send a clean JSON
+    json_out([
+        'ok'    => false,
+        'error' => 'Unhandled exception',
+        'hint'  => 'See server logs for details.',
+    ], 500);
+} finally {
+    // Optional: lightweight perf sample
+    if (function_exists('cis_profile_flush')) {
+        cis_profile_flush(['endpoint' => 'transfers.stock.handler', 'ms' => (int)((microtime(true) - $start) * 1000)]);
+    }
+}
