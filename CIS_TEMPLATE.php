@@ -128,6 +128,23 @@ if (empty($__cis_meta['breadcrumb'])) {
   $__cis_meta['breadcrumb'] = $bc;
 }
 
+// Set global security headers early (before any output)
+if (!headers_sent()) {
+  header('X-Content-Type-Options: nosniff');
+  header('X-Frame-Options: SAMEORIGIN');
+  // Prefer strict-origin-when-cross-origin for better privacy while keeping basic referrer
+  header('Referrer-Policy: strict-origin-when-cross-origin');
+  // X-XSS-Protection is legacy but kept for older UAs
+  header('X-XSS-Protection: 1; mode=block');
+  header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+  // Lock down powerful features by default; expand per-view if needed via template hooks
+  header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+}
+// Respect per-view noindex in HTTP layer as well (templates may also add <meta name="robots">)
+if (!empty($__cis_meta['noindex']) && !headers_sent()) {
+  header('X-Robots-Tag: noindex, nofollow');
+}
+
 
 //######### AJAX BEGINS HERE #########
 // Proxy ajax_action to module handler when hitting /module/{module}/{view}
@@ -151,6 +168,7 @@ try {
       if (is_file($fallback)) { include $fallback; exit; }
       http_response_code(200);
       header('Content-Type: application/json; charset=utf-8');
+      header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
       echo json_encode(['success'=>false,'error'=>'invalid','request_id'=>bin2hex(random_bytes(8))]);
       exit;
     }
@@ -158,6 +176,7 @@ try {
 } catch (Throwable $e) {
   http_response_code(200);
   header('Content-Type: application/json; charset=utf-8');
+  header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
   echo json_encode(['success'=>false,'error'=>'template_proxy_error']);
   exit;
 }
@@ -182,16 +201,6 @@ include $_SERVER['DOCUMENT_ROOT'] . "/assets/template/header.php";
 ?>
 
 <body class="app header-fixed sidebar-fixed aside-menu-fixed sidebar-lg-show">
-  <?php
-  // Global security headers for all public-facing pages rendered via CIS_TEMPLATE
-  if (!headers_sent()) {
-    header('X-Content-Type-Options: nosniff');
-    header('X-Frame-Options: SAMEORIGIN');
-    header('Referrer-Policy: no-referrer-when-downgrade');
-    header('X-XSS-Protection: 1; mode=block');
-    header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
-  }
-  ?>
   <div class="app-body">
   <?php include $_SERVER['DOCUMENT_ROOT'] . "/assets/template/sidemenu.php"; ?>
     <main class="main">
@@ -373,7 +382,6 @@ include $_SERVER['DOCUMENT_ROOT'] . "/assets/template/header.php";
 
    <!-- ######### CSS BEGINS HERE ######### -->
 
-   <!-- ######### CSS BEGINS HERE ######### -->
 
 
   <!-- ######### JAVASSCRIPT BEGINS HERE ######### -->

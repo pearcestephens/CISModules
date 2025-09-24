@@ -3,140 +3,34 @@ declare(strict_types=1);
 /**
  * File: modules/transfers/stock/views/pack.php
  * Purpose: Stock Transfer Pack — Final Form view. Renders within CIS template.
- * Author: CIS Auto-Build
- * Last Modified: 2025-09-24
- * Dependencies: requires app.php; AJAX at modules/transfers/stock/ajax/handler.php
  */
 
-require_once $_SERVER['DOCUMENT_ROOT'] . '/app.php';
+require_once $_SERVER['DOCUMENT_ROOT'] . '/modules/transfers/stock/lib/view_helpers.php';
 
-$transferId = isset($_GET['transfer']) ? trim((string)$_GET['transfer']) : '';
-if ($transferId === '') {
-    echo '<div class="alert alert-danger">Missing transfer id.</div>';
-    return;
-}
+// Resolve transfer id from common query params
+$__tid_keys = ['transfer','transfer_id','id','tid','t'];
+$transferIdParam = 0; foreach ($__tid_keys as $__k) { if (isset($_GET[$__k]) && (int)$_GET[$__k] > 0) { $transferIdParam = (int)$_GET[$__k]; break; } }
+if ($transferIdParam <= 0) { echo '<div class="alert alert-danger">Missing transfer ID.</div>'; return; }
 
-// CSRF token exposure (best-effort; actual validation in handler)
-$csrfToken = isset($_SESSION['csrf']) ? (string)$_SESSION['csrf'] : '';
+// Ensure CSRF token exists for AJAX
+if (!isset($_SESSION)) { session_start(); }
+$csrfToken = '';
+if (function_exists('getCSRFToken')) { try { $csrfToken = (string)getCSRFToken(); } catch (Throwable $e) { $csrfToken = ''; } }
+if ($csrfToken === '') { $csrfToken = (string)($_SESSION['csrf_token'] ?? ''); }
+if ($csrfToken === '') { $csrfToken = bin2hex(random_bytes(16)); $_SESSION['csrf_token'] = $csrfToken; }
 
-?>
-<div class="stx-pack" id="stx-pack" data-transfer-id="<?=htmlspecialchars($transferId)?>" data-csrf="<?=htmlspecialchars($csrfToken)?>">
-  <header class="stx-pack__header">
-    <div class="stx-pack__title">Stock Transfer — Pack</div>
-    <div class="stx-pack__meta">
-      <span class="stx-pack__route" id="stx-route">Loading…</span>
-      <span class="stx-pack__id" id="stx-transfer-id"></span>
-      <span class="stx-pack__status" id="stx-status" aria-live="polite">Idle</span>
-    </div>
-  </header>
+// Base/shared styles like dashboard (keep absolute https policy via mod_asset_url)
+mod_style('/modules/_shared/assets/css/cis-tokens.css?v=' . mod_v('/modules/_shared/assets/css/cis-tokens.css'));
+mod_style('/modules/_shared/assets/css/cis-utilities.css?v=' . mod_v('/modules/_shared/assets/css/cis-utilities.css'));
+mod_style('/modules/transfers/stock/assets/css/stx-ui.css?v=' . mod_v('/modules/transfers/stock/assets/css/stx-ui.css'));
 
-  <div class="stx-lock" id="stx-lock" role="status" aria-live="polite">
-    <span id="stx-lock-state">Checking lock…</span>
-    <button class="btn btn-sm btn-outline-primary d-none" id="btn-request-edit">Request Edit</button>
-  </div>
-
-  <section class="stx-summary" aria-labelledby="sum-h">
-    <h3 id="sum-h">Summary</h3>
-    <div class="stx-kv">
-      <div class="kv"><span class="k">SKUs</span><span class="v" id="sum-skus">—</span></div>
-      <div class="kv"><span class="k">Units</span><span class="v" id="sum-units">—</span></div>
-      <div class="kv"><span class="k">Estimated Weight</span><span class="v" id="sum-weight">—</span></div>
-      <div class="kv"><span class="k">Estimated Boxes</span><span class="v" id="sum-boxes">—</span></div>
-      <div class="kv"><span class="k">Total Cost Value</span><span class="v" id="sum-cost">—</span></div>
-    </div>
-  </section>
-
-  <section class="stx-table" aria-labelledby="tbl-h">
-    <h3 id="tbl-h">Items</h3>
-    <div class="table-responsive">
-      <table class="table table-sm table-striped">
-        <thead>
-          <tr>
-            <th>Product</th>
-            <th>SKU</th>
-            <th class="text-end">Qty</th>
-            <th class="text-end">Supply Cost</th>
-            <th class="text-end">Line Cost</th>
-          </tr>
-        </thead>
-        <tbody id="items-body">
-          <tr><td colspan="5">Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="stx-delivery" aria-labelledby="deliv-h">
-    <h3 id="deliv-h">Delivery Method</h3>
-    <div class="stx-chips mb-2">
-      <span class="chip chip--nzpost d-none" id="chip-nzpost">NZ Post</span>
-      <span class="chip chip--gss d-none" id="chip-gss">NZ Couriers (GSS)</span>
-      <span class="chip chip--manual" id="chip-manual">Manual</span>
-    </div>
-    <div class="row g-3">
-      <div class="col-12 col-md-7">
-        <div class="mt-0">
-          <div class="row g-2 align-items-center">
-            <div class="col-auto">
-              <label for="stx-boxes-input" class="col-form-label">Box count (optional)</label>
-            </div>
-            <div class="col-auto">
-              <input type="number" id="stx-boxes-input" class="form-control form-control-sm" min="1" step="1" placeholder="auto" />
-            </div>
-            <div class="col-auto">
-              <small class="text-muted">Defaults from weight estimate; you can override here.</small>
-            </div>
-          </div>
-          <button class="btn btn-sm btn-secondary mt-2" id="btn-print-box-slips">Print Box Slips</button>
-        </div>
-      </div>
-      <div class="col-12 col-md-5">
-        <div class="stx-shipping-summary" aria-labelledby="ship-h">
-          <h4 id="ship-h" class="h6 mb-2">Shipping Summary</h4>
-          <div id="ship-summary" class="card card-body p-2">
-            <div class="small text-muted">Calculating…</div>
-            <div class="row g-2 align-items-center mt-1">
-              <div class="col-auto"><strong>Total Weight:</strong> <span id="ship-total-kg">—</span></div>
-              <div class="col-auto"><strong>Best Option:</strong> <span id="ship-best">—</span></div>
-            </div>
-            <div class="mt-2">
-              <button class="btn btn-sm btn-outline-primary" id="btn-refresh-shipping">Refresh</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="stx-notes" aria-labelledby="notes-h">
-    <h3 id="notes-h">Notes</h3>
-    <div class="mb-2">
-      <textarea id="note-text" class="form-control" rows="2" placeholder="Add a note…"></textarea>
-      <div class="d-flex justify-content-between align-items-center mt-1">
-        <button class="btn btn-sm btn-primary" id="btn-add-note">Add Note</button>
-        <small id="save-indicator" class="text-muted">Idle</small>
-      </div>
-    </div>
-    <ul class="list-group" id="notes-list" aria-live="polite"></ul>
-  </section>
-
-  <section class="stx-finalise" aria-labelledby="final-h">
-    <h3 id="final-h">Finalise</h3>
-    <button class="btn btn-success" id="btn-mark-ready">Mark Ready</button>
-  </section>
-</div>
-
-<script>
-  window.__STX_PACK__ = {
-    ajaxBase: 'https://staff.vapeshed.co.nz/modules/transfers/stock/ajax/handler.php'
-  };
-</script>
-<?php
-// Assets are enqueued via views/pack.meta.php (CIS template reads it)
-?>
-<?php
-declare(strict_types=1);
-require_once $_SERVER['DOCUMENT_ROOT'] . '/modules/_shared/template.php';
+// Pack-specific assets
+mod_style('/modules/transfers/stock/assets/css/stock.css?v=' . mod_v('/modules/transfers/stock/assets/css/stock.css'));
+mod_script('/modules/transfers/stock/assets/js/core.js?v=' . mod_v('/modules/transfers/stock/assets/js/core.js'), ['defer' => true]);
+mod_script('/modules/transfers/stock/assets/js/pack.js?v=' . mod_v('/modules/transfers/stock/assets/js/pack.js'), ['defer' => true]);
+// Printer v2 styles/scripts (used by box slip printing)
+mod_style('/modules/transfers/stock/assets/css/printer.v2.css?v=' . mod_v('/modules/transfers/stock/assets/css/printer.v2.css'));
+mod_script('/modules/transfers/stock/assets/js/printer.v2.js?v=' . mod_v('/modules/transfers/stock/assets/js/printer.v2.js'), ['defer' => true]);
 
 // Minimal DB-backed loader for pack view compatibility
 if (!function_exists('getTransferData')) {
@@ -383,49 +277,10 @@ if (!function_exists('getTransferData')) {
   }
 }
 
-$__tid_keys = ['transfer','transfer_id','id','tid','t'];
-$transferIdParam = 0; foreach ($__tid_keys as $__k) { if (isset($_GET[$__k]) && (int)$_GET[$__k] > 0) { $transferIdParam = (int)$_GET[$__k]; break; } }
-if ($transferIdParam <= 0) { echo '<div class="alert alert-danger">Missing transfer ID.</div>'; return; }
+// Attempt to hydrate basic transfer info (for diagnostics and optional UI binds)
 if (!isset($transferData)) { try { $transferData = getTransferData($transferIdParam, true); } catch (Throwable $e) { $transferData = null; } }
 if (!$transferData) { echo '<div class="alert alert-warning">Transfer not found.</div>'; return; }
 
-// CSRF: ensure token exists and expose meta for JS
-if (!isset($_SESSION)) { session_start(); }
-$csrfToken = '';
-if (function_exists('getCSRFToken')) { try { $csrfToken = (string)getCSRFToken(); } catch (Throwable $e) { $csrfToken = ''; } }
-if ($csrfToken === '') { $csrfToken = (string)($_SESSION['csrf_token'] ?? ''); }
-if ($csrfToken === '') { $csrfToken = bin2hex(random_bytes(16)); $_SESSION['csrf_token'] = $csrfToken; }
-tpl_shared_assets();
-// Queue assets (CIS template will render queued assets globally). Use absolute URLs per policy.
-// Add cache-busting based on local filemtime where available.
-$paths = [
-  'css' => [
-    '/modules/transfers/stock/assets/css/stock.css',
-    '/modules/transfers/stock/assets/css/planner.v3.css',
-  ],
-  'js' => [
-    '/modules/transfers/stock/assets/js/core.js',
-    '/modules/transfers/stock/assets/js/pack.js',
-    '/modules/transfers/stock/assets/js/pack.init.js',
-    '/modules/transfers/stock/assets/js/packages.presets.js',
-    '/modules/transfers/stock/assets/js/printer.js',
-    '/modules/transfers/stock/assets/js/comments.js',
-    '/modules/transfers/stock/assets/js/planner.v3.js',
-  ],
-];
-$ver = function(string $rel): string {
-  $abs = $_SERVER['DOCUMENT_ROOT'] . $rel;
-  $q = '';
-  if (is_file($abs)) { $q = '?v=' . rawurlencode((string)@filemtime($abs)); }
-  return $rel . $q;
-};
-// Pass relative paths to tpl_* helpers; they will prefix canonical base URL once.
-foreach ($paths['css'] as $rel) { tpl_style($ver($rel)); }
-foreach ($paths['js'] as $rel)  { tpl_script($ver($rel), ['defer' => true]); }
-tpl_style($ver('/modules/transfers/stock/assets/css/printer.v2.css'));
-tpl_script($ver('/modules/transfers/stock/assets/js/printer.v2.js'), ['defer' => true]);
-?>
-<?php
 // Hydration diagnostics: record an event with item count to transfer_logs for debugging
 try {
   $tidDiag = (int)($transferData->id ?? $transferIdParam);
@@ -444,28 +299,28 @@ try {
   // no-op; avoid breaking UI if logging fails
 }
 ?>
-<div class="stx-outgoing" data-module="stock" data-view="pack">
+
+<div class="stx-pack" id="stx-pack" data-transfer-id="<?= (int)($transferData->id ?? $transferIdParam) ?>">
   <meta name="csrf-token" content="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-  <meta name="stx-ajax" content="https://staff.vapeshed.co.nz/modules/transfers/stock/ajax/handler.php">
+  <meta name="stx-ajax" content="<?= mod_e(mod_asset_url('/modules/transfers/stock/ajax/handler.php')) ?>">
   <input type="hidden" name="csrf" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
   <input type="hidden" id="transferID" value="<?= (int)($transferData->id ?? $transferIdParam) ?>">
-  <?php tpl_block('draft_status_bar'); ?>
-  <?php tpl_block('draft_toolbar'); ?>
-  <?php tpl_block('items_table', ['transferData' => $transferData]); ?>
-  <?php tpl_block('printer_v2'); ?>
-  <?php tpl_block('planner_v3'); ?>
-  <?php tpl_block('box_labels'); ?>
-  <?php tpl_block('shipping_tabs'); ?>
-  <?php tpl_block('delivery_notes'); ?>
-  <?php tpl_block('comments'); ?>
-  <?php 
-    // Allow pack-only banner via query toggle if not provided by environment
-    if (!isset($PACKONLY)) { $PACKONLY = ((int)($_GET['packonly'] ?? 0) === 1); }
-    if (!empty($PACKONLY)) tpl_block('packonly_banner'); 
+
+  <?php
+    // Use local blocks to keep this view minimal
+    $___vars = ['transferId' => (int)($transferData->id ?? $transferIdParam)];
+    include dirname(__DIR__) . '/blocks/pack_header.php';
+    include dirname(__DIR__) . '/blocks/pack_summary.php';
+    include dirname(__DIR__) . '/blocks/pack_items_table.php';
+    include dirname(__DIR__) . '/blocks/pack_delivery.php';
+    include dirname(__DIR__) . '/blocks/pack_notes.php';
+    include dirname(__DIR__) . '/blocks/pack_finalise.php';
   ?>
-  <?php tpl_block('pack_actions'); ?>
-  <?php tpl_block('add_products_modal'); ?>
 </div>
-<?php
-// Breadcrumbs are rendered by CIS template from meta when present; avoid emitting here to prevent duplicates.
-?>
+
+<script>
+  window.__STX_PACK__ = { ajaxBase: '<?= mod_e(mod_asset_url('/modules/transfers/stock/ajax/handler.php')) ?>' };
+</script>
+
+<?php mod_render_styles(); ?>
+<?php mod_render_scripts(); ?>
