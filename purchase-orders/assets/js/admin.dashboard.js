@@ -1,133 +1,117 @@
-/* https://staff.vapeshed.co.nz/modules/purchase-orders/assets/js/admin.dashboard.js */
-(function () {
-  const csrf = document.querySelector('meta[name="csrf"]').content;
-  const H = 'https://staff.vapeshed.co.nz/modules/purchase-orders/ajax/handler.php';
+/* Purchase Orders — Admin dashboard */
+(() => {
+  const API = '/modules/purchase-orders/ajax/handler.php';
+  const csrf = document.querySelector('.po-admin')?.dataset?.csrf ||
+               document.querySelector('meta[name="csrf-token"]')?.content ||
+               document.querySelector('[name="csrf"]')?.value || '';
 
-  function post(form) {
-    const data = new URLSearchParams();
-    Object.entries(form).forEach(([k,v])=>{ if (v!==undefined && v!==null) data.append(k, String(v)); });
-    data.append('csrf', csrf);
-    return fetch(H, { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body:String(data) })
-      .then(r=>r.json());
-  }
-
-  const state = { rcp:{page:1,size:20}, evt:{page:1,size:20}, q:{page:1,size:20} };
-  const q = sel => document.querySelector(sel);
-  const tbody = sel => q(sel).querySelector('tbody');
-
-  function applyFilter() {
-    state.po = parseInt(q('#po-filter-id').value || '0', 10) || 0;
-    loadReceipts(); loadEvents();
-  }
-
-  function loadReceipts() {
-    post({ action:'admin.list_receipts', po_id: state.po || 0, page: state.rcp.page, size: state.rcp.size })
-      .then(j=>{
-        if (!j.success) throw new Error(j.error && j.error.message || 'error');
-        const rows = j.data.rows||[]; const tb = tbody('#tbl-receipts'); tb.innerHTML='';
-        rows.forEach(r=>{
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${r.receipt_id}</td><td>${r.purchase_order_id}</td><td>${r.outlet_id||''}</td><td>${r.is_final? 'Yes':'No'}</td><td>${r.items||0}</td><td>${r.created_by||''}</td><td>${r.created_at||''}</td>`;
-          tb.appendChild(tr);
-        });
-        q('#rcp-page').textContent = `${j.data.page} / ${Math.max(1, Math.ceil(j.data.total / state.rcp.size))}`;
-        q('#receipts-meta').textContent = `${j.data.total} total`;
-      }).catch(()=>{});
-  }
-
-  function loadEvents() {
-    post({ action:'admin.list_events', po_id: state.po || 0, page: state.evt.page, size: state.evt.size })
-      .then(j=>{
-        if (!j.success) throw new Error(j.error && j.error.message || 'error');
-        const rows = j.data.rows||[]; const tb = tbody('#tbl-events'); tb.innerHTML='';
-        rows.forEach(r=>{
-          const tr = document.createElement('tr');
-          let data = r.event_data; try { data = data ? JSON.stringify(JSON.parse(data), null, 0) : ''; } catch(e) {}
-          tr.innerHTML = `<td>${r.event_id}</td><td>${r.purchase_order_id}</td><td>${r.event_type}</td><td class="text-monospace small">${(data||'').slice(0,140)}</td><td>${r.created_by||''}</td><td>${r.created_at||''}</td>`;
-          tb.appendChild(tr);
-        });
-        q('#evt-page').textContent = `${j.data.page} / ${Math.max(1, Math.ceil(j.data.total / state.evt.size))}`;
-        q('#events-meta').textContent = `${j.data.total} total`;
-      }).catch(()=>{});
-  }
-
-  function loadQueue() {
-    const status = q('#queue-status').value; const outlet = q('#queue-outlet').value;
-    post({ action:'admin.list_inventory_requests', status, outlet_id: outlet, page: state.q.page, size: state.q.size })
-      .then(j=>{
-        if (!j.success) throw new Error(j.error && j.error.message || 'error');
-        const rows = j.data.rows||[]; const tb = tbody('#tbl-queue'); tb.innerHTML='';
-        rows.forEach(r=>{
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${r.request_id}</td><td>${r.outlet_id}</td><td>${r.product_id}</td><td>${r.delta}</td><td>${r.status}</td><td>${r.reason||''}</td><td>${r.requested_at||''}</td>
-            <td>
-              <button class="btn btn-xs btn-outline-secondary mr-1" data-act="retry" data-id="${r.request_id}">Retry</button>
-              <button class="btn btn-xs btn-outline-primary" data-act="force" data-id="${r.request_id}">Force</button>
-            </td>`;
-          tb.appendChild(tr);
-        });
-        q('#q-page').textContent = `${j.data.page} / ${Math.max(1, Math.ceil(j.data.total / state.q.size))}`;
-        q('#queue-meta').textContent = `${j.data.total} total`;
-      }).catch(()=>{});
-  }
-
-  function onQueueAction(e){
-    const btn = e.target.closest('button'); if (!btn) return;
-    const id = btn.getAttribute('data-id'); const act = btn.getAttribute('data-act');
-    if (!id) return;
-    const action = act==='retry' ? 'admin.retry_request' : 'admin.force_resend';
-    post({ action, request_id: id }).then(()=> loadQueue());
-  }
-
-  function refreshEvidence(){
-    const po = parseInt(q('#ev-po-id').value||'0',10)||0; if(!po) return;
-    post({ action:'po.list_evidence', po_id: po }).then(j=>{
-      if (!j.success) return;
-      const tb = tbody('#tbl-evidence'); tb.innerHTML='';
-      (j.data.rows||[]).forEach(r=>{
-        const tr = document.createElement('tr');
-        const href = r.file_path;
-        tr.innerHTML = `<td>${r.id}</td><td><a href="${href}" target="_blank" rel="noopener">${href}</a></td><td>${r.evidence_type||''}</td><td>${r.uploaded_by||''}</td><td>${r.uploaded_at||''}</td>`;
-        tb.appendChild(tr);
-      });
-    });
-  }
-
-  function onUpload(ev){
-    ev.preventDefault();
-    const po = parseInt(q('#ev-po-id').value||'0',10)||0; if(!po) return alert('Enter PO ID');
-    const file = q('#ev-file').files[0]; if(!file) return alert('Choose a file');
+  function jreq(action, body = {}) {
     const fd = new FormData();
-    fd.append('action','po.upload_evidence');
+    fd.append('ajax_action', action);
     fd.append('csrf', csrf);
-    fd.append('po_id', String(po));
-    fd.append('evidence_type', q('#ev-type').value);
-    fd.append('description', q('#ev-desc').value);
-    fd.append('file', file);
-    fetch(H, { method:'POST', body: fd }).then(r=>r.json()).then(j=>{
-      if(!j.success) return alert(j.error && j.error.message || 'Upload failed');
-      q('#ev-file').value = '';
-      refreshEvidence();
-    });
+    Object.entries(body).forEach(([k,v]) => fd.append(k, v));
+    return fetch(API, { method: 'POST', body: fd }).then(r => r.json());
   }
 
-  // Bindings
-  q('#btn-apply-filter').addEventListener('click', applyFilter);
-  q('#btn-refresh-receipts').addEventListener('click', loadReceipts);
-  q('#btn-refresh-events').addEventListener('click', loadEvents);
-  q('#btn-refresh-queue').addEventListener('click', loadQueue);
-  q('#tbl-queue').addEventListener('click', onQueueAction);
-  q('#evidence-form').addEventListener('submit', onUpload);
-  q('#btn-refresh-evidence').addEventListener('click', refreshEvidence);
+  const poFilter = document.querySelector('#po-filter-id');
 
-  // Pager bindings
-  q('#rcp-prev').addEventListener('click', ()=>{ state.rcp.page=Math.max(1,state.rcp.page-1); loadReceipts(); });
-  q('#rcp-next').addEventListener('click', ()=>{ state.rcp.page=state.rcp.page+1; loadReceipts(); });
-  q('#evt-prev').addEventListener('click', ()=>{ state.evt.page=Math.max(1,state.evt.page-1); loadEvents(); });
-  q('#evt-next').addEventListener('click', ()=>{ state.evt.page=state.evt.page+1; loadEvents(); });
-  q('#q-prev').addEventListener('click', ()=>{ state.q.page=Math.max(1,state.q.page-1); loadQueue(); });
-  q('#q-next').addEventListener('click', ()=>{ state.q.page=state.q.page+1; loadQueue(); });
+  // Receipts tab
+  function loadReceipts(page = 1) {
+    const po = parseInt(poFilter?.value || '0', 10);
+    jreq('admin.list_receipts', { po_id: String(po || ''), page: String(page), size: '25' })
+      .then(res => {
+        const tb = document.querySelector('#tbl-receipts tbody'); if (!tb) return;
+        if (!res.success) { tb.innerHTML = `<tr><td colspan="7" class="text-danger">Error</td></tr>`; return; }
+        const rows = res.data.rows || [];
+        tb.innerHTML = rows.map(r => `
+          <tr>
+            <td>${r.receipt_id}</td>
+            <td>${r.purchase_order_id}</td>
+            <td>${r.outlet_id ?? ''}</td>
+            <td>${r.is_final ? 'Yes' : 'No'}</td>
+            <td>${r.items}</td>
+            <td>${r.created_by ?? ''}</td>
+            <td>${r.created_at}</td>
+          </tr>`).join('') || `<tr><td colspan="7" class="text-muted">No receipts</td></tr>`;
+        document.querySelector('#rcp-page').textContent = `page ${res.data.page}`;
+        document.querySelector('#receipts-meta').textContent = `${res.data.total} total`;
+      });
+  }
 
-  // Initial load
-  loadReceipts(); loadEvents(); loadQueue();
+  // Events tab
+  function loadEvents(page = 1) {
+    const po = parseInt(poFilter?.value || '0', 10);
+    jreq('admin.list_events', { po_id: String(po || ''), page: String(page), size: '25' })
+      .then(res => {
+        const tb = document.querySelector('#tbl-events tbody'); if (!tb) return;
+        if (!res.success) { tb.innerHTML = `<tr><td colspan="6" class="text-danger">Error</td></tr>`; return; }
+        const rows = res.data.rows || [];
+        tb.innerHTML = rows.map(r => `
+          <tr>
+            <td>${r.event_id}</td>
+            <td>${r.purchase_order_id}</td>
+            <td>${r.event_type}</td>
+            <td><pre class="small mb-0">${escapeHtml(r.event_data || '')}</pre></td>
+            <td>${r.created_by ?? ''}</td>
+            <td>${r.created_at}</td>
+          </tr>`).join('') || `<tr><td colspan="6" class="text-muted">No events</td></tr>`;
+        document.querySelector('#evt-page').textContent = `page ${res.data.page}`;
+        document.querySelector('#events-meta').textContent = `${res.data.total} total`;
+      });
+  }
+
+  // Queue tab
+  function loadQueue(page = 1) {
+    const status = document.querySelector('#queue-status')?.value || '';
+    const outlet = document.querySelector('#queue-outlet')?.value || '';
+    jreq('admin.list_inventory_requests', { status, outlet_id: outlet, page: String(page), size: '25' })
+      .then(res => {
+        const tb = document.querySelector('#tbl-queue tbody'); if (!tb) return;
+        if (!res.success) { tb.innerHTML = `<tr><td colspan="8" class="text-danger">Error</td></tr>`; return; }
+        const rows = res.data.rows || [];
+        tb.innerHTML = rows.map(r => `
+          <tr>
+            <td>${r.request_id}</td>
+            <td>${r.outlet_id}</td>
+            <td>${r.product_id}</td>
+            <td>${r.delta}</td>
+            <td><span class="badge badge-${r.status === 'failed' ? 'danger' : (r.status === 'pending' ? 'warning' : 'success')}">${r.status}</span></td>
+            <td>${r.reason}</td>
+            <td>${r.requested_at}</td>
+            <td class="text-right">
+               <button class="btn btn-sm btn-outline-secondary q-retry" data-id="${r.request_id}">Retry</button>
+               <button class="btn btn-sm btn-outline-primary q-resend" data-id="${r.request_id}">Force Resend</button>
+            </td>
+          </tr>`).join('') || `<tr><td colspan="8" class="text-muted">No queue rows</td></tr>`;
+        document.querySelector('#q-page').textContent = `page ${res.data.page}`;
+        document.querySelector('#queue-meta').textContent = `${res.data.total} total`;
+      });
+  }
+
+  // bindings
+  document.querySelector('#btn-apply-filter')?.addEventListener('click', () => {
+    loadReceipts(1); loadEvents(1);
+  });
+  document.querySelector('#btn-refresh-receipts')?.addEventListener('click', () => loadReceipts());
+  document.querySelector('#btn-refresh-events')?.addEventListener('click', () => loadEvents());
+  document.querySelector('#btn-refresh-queue')?.addEventListener('click', () => loadQueue());
+
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t.classList.contains('q-retry')) {
+      jreq('admin.retry_request', { request_id: t.dataset.id })
+        .then(res => { if (!res.success) alert('Retry failed'); loadQueue(); });
+    }
+    if (t.classList.contains('q-resend')) {
+      jreq('admin.force_resend', { request_id: t.dataset.id })
+        .then(res => { if (!res.success) alert('Force resend failed'); loadQueue(); });
+    }
+  });
+
+  function escapeHtml(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+  // init
+  loadReceipts();
+  loadEvents();
+  loadQueue();
 })();

@@ -66,6 +66,10 @@ Headers (partner API):
 - GET https://staff.vapeshed.co.nz/modules/purchase-orders/api/v1/health
 - Response: `{ success: true, data: { status: "ok" }, request_id }`
 
+10b) Health (internal AJAX)
+- GET https://staff.vapeshed.co.nz/modules/purchase-orders/ajax/handler.php?ajax_action=health
+- Response: `{ success:true, data:{ module:"purchase-orders", status:"healthy", time }, request_id }`
+
 ## Errors
 
 - 400: validation_error (details per field)

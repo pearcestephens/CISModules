@@ -5,10 +5,15 @@
     "query": "https://staff.vapeshed.co.nz/modules/module.php?module={module}&view={view}",
     "pretty": "https://staff.vapeshed.co.nz/module/{module}/{view}"
   },
+  "docs_global": {
+    "phases_plan": "https://staff.vapeshed.co.nz/modules/docs/PHASES_A30_TO_A01.md",
+    "final_repo_layout": "https://staff.vapeshed.co.nz/modules/docs/FINAL_REPO_LAYOUT.md",
+    "knowledge_base_summary": "https://staff.vapeshed.co.nz/modules/docs/KNOWLEDGE_BASE_SUMMARY.md"
+  },
   "modules": {
     "transfers": {
       "docs": {
-  "readme": "https://staff.vapeshed.co.nz/modules/transfers/README.md",
+        "readme": "https://staff.vapeshed.co.nz/modules/transfers/README.md",
         "design": "https://staff.vapeshed.co.nz/modules/transfers/DESIGN.md"
       },
       "routes": {
@@ -39,6 +44,17 @@
             "cancel_transfer",
             "delete_transfer"
           ]
+        },
+        "receive": {
+          "docs": {
+            "hub": "https://staff.vapeshed.co.nz/modules/transfers/receive/docs/",
+            "api_contract": "https://staff.vapeshed.co.nz/modules/transfers/receive/docs/RECEIVE_API_CONTRACT.md"
+          },
+          "routes": {
+            "dashboard": "https://staff.vapeshed.co.nz/modules/transfers/receive/dashboard.php",
+            "receive": "https://staff.vapeshed.co.nz/modules/module.php?module=transfers/receive&view=receive&transfer={id}"
+          },
+          "ajax_base": "https://staff.vapeshed.co.nz/modules/transfers/receive/ajax/handler.php"
         }
       }
     },

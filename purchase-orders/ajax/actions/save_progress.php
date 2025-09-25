@@ -1,100 +1,162 @@
 <?php
-/**
- * Filename: save_progress.php
- * Action: po.save_progress
- * URL: https://staff.vapeshed.co.nz/modules/purchase-orders/ajax/handler.php
- * Purpose: Update a single PO line's received quantity (qty_arrived) idempotently and enqueue inventory adjustments (optional).
- * Author: CIS Developer Bot
- * Last Modified: 2025-09-21
- * Dependencies: Requires tools.php (po_pdo, po_jresp, po_has_column, po_table_exists), session/login, CSRF.
- */
 declare(strict_types=1);
 
-// tools.php already loaded by handler; provides po_pdo(), po_jresp()
+/**
+ * save_progress.php
+ * Line-level receive update + enqueue inventory.command("set") via POQueueBridge.
+ *
+ * Inputs (POST):
+ *   po_id           int      (required)
+ *   product_id      string   (required)
+ *   qty_received    int      (>=0, required)
+ *   live            bool     (optional; default true) if true, enqueue inventory set
+ *   idempotency_key string   (optional)
+ *   csrf / X-CSRF-Token     (required)
+ *
+ * Response:
+ *   { success, request_id, data: { po_id, product_id, qty_received, delta, queue:{queued,job_id,idk,note} } }
+ */
 
-$ctx   = $GLOBALS['__po_ctx'] ?? ['uid'=>0,'request_id'=>''];
+$ctx = $GLOBALS['__po_ctx'] ?? ['uid' => 0];
+po_verify_csrf();
+
 $poId  = (int)($_POST['po_id'] ?? 0);
-$pid   = isset($_POST['product_id']) ? (string)$_POST['product_id'] : '';
-$qty   = isset($_POST['qty_received']) ? (int)$_POST['qty_received'] : null; // required for line-level save
-$live  = isset($_POST['live']) ? filter_var($_POST['live'], FILTER_VALIDATE_BOOLEAN) : true; // default live queue
+$pid   = (string)($_POST['product_id'] ?? '');
+$qtyIn = $_POST['qty_received'] ?? null;
+$live  = isset($_POST['live']) ? (bool)filter_var($_POST['live'], FILTER_VALIDATE_BOOLEAN) : true;
+$idem  = (string)($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? $_POST['idempotency_key'] ?? '');
 
-if ($poId <= 0) po_jresp(false, ['code'=>'bad_request','message'=>'po_id required'], 422);
-if ($pid === '') po_jresp(false, ['code'=>'bad_request','message'=>'product_id required'], 422);
-if ($qty === null || $qty < 0) po_jresp(false, ['code'=>'bad_request','message'=>'qty_received must be >= 0'], 422);
+if ($poId <= 0)  po_jresp(false, ['code' => 'bad_request', 'message' => 'po_id required'], 422);
+if ($pid === '') po_jresp(false, ['code' => 'bad_request', 'message' => 'product_id required'], 422);
+if (!is_numeric($qtyIn) || (int)$qtyIn < 0) po_jresp(false, ['code' => 'bad_request', 'message' => 'qty_received must be >= 0'], 422);
+
+$qtyNew = (int)$qtyIn;
 
 try {
     $pdo = po_pdo();
-    // Reject edits on completed PO
-    $st = $pdo->prepare('SELECT status, outlet_id FROM purchase_orders WHERE purchase_order_id = ? LIMIT 1');
-    $st->execute([$poId]);
-    $hdr = $st->fetch();
-    if (!$hdr) po_jresp(false, ['code'=>'not_found','message'=>'PO not found'], 404);
-    if ((int)($hdr['status'] ?? 0) === 1) po_jresp(false, ['code'=>'readonly','message'=>'Purchase order is completed'], 409);
-    $outletId = (string)($hdr['outlet_id'] ?? '');
 
-    // Detect schema
-    $orderQtyCol = po_has_column($pdo,'purchase_order_line_items','order_qty') ? 'order_qty' : (po_has_column($pdo,'purchase_order_line_items','qty_ordered') ? 'qty_ordered' : 'order_qty');
-    $qtyArrCol   = po_has_column($pdo,'purchase_order_line_items','qty_arrived') ? 'qty_arrived' : 'qty_received';
-    $recvAtCol   = po_has_column($pdo,'purchase_order_line_items','received_at') ? 'received_at' : null;
+    // ---------- idempotency replay ----------
+    $reqParams = $_POST;
+    unset($reqParams['csrf'], $reqParams['csrf_token'], $reqParams['idempotency_key']);
+    $reqParams['__script'] = $_SERVER['SCRIPT_NAME'] ?? '';
+    $reqParams['__action'] = 'save_progress';
+    ksort($reqParams);
+    $canon = json_encode($reqParams, JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION);
+    $reqHash = hash('sha256', (string)$canon);
 
-    // Fetch current line
-    $sel = $pdo->prepare("SELECT {$orderQtyCol} AS expected, COALESCE({$qtyArrCol},0) AS current FROM purchase_order_line_items WHERE purchase_order_id = ? AND product_id = ? LIMIT 1");
+    if ($idem !== '') {
+        $rec = po_idem_get($pdo, $idem);
+        if ($rec) {
+            if ($rec['request_hash'] === $reqHash && is_array($rec['response'])) {
+                http_response_code(200);
+                echo json_encode($rec['response'], JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+            po_jresp(false, ['code' => 'idem_conflict', 'message' => 'Idempotency key re-used with different request body'], 409);
+        }
+    }
+
+    // ---------- header / line ----------
+    $hdr = $pdo->prepare('SELECT status,outlet_id FROM purchase_orders WHERE purchase_order_id = ? LIMIT 1');
+    $hdr->execute([$poId]);
+    $header = $hdr->fetch();
+    if (!$header) po_jresp(false, ['code' => 'not_found', 'message' => 'PO not found'], 404);
+    if ((int)($header['status'] ?? 0) === 1) po_jresp(false, ['code' => 'readonly', 'message' => 'Purchase order is completed'], 409);
+
+    $outletId = (string)($header['outlet_id'] ?? '');
+
+    $orderQtyCol = po_has_column($pdo, 'purchase_order_line_items', 'order_qty') ? 'order_qty'
+                  : (po_has_column($pdo, 'purchase_order_line_items', 'qty_ordered') ? 'qty_ordered' : 'order_qty');
+    $qtyArrCol   = po_has_column($pdo, 'purchase_order_line_items', 'qty_arrived') ? 'qty_arrived' : 'qty_received';
+    $recvAtCol   = po_has_column($pdo, 'purchase_order_line_items', 'received_at') ? 'received_at' : null;
+
+    $sel = $pdo->prepare("SELECT {$orderQtyCol} AS expected, COALESCE({$qtyArrCol},0) AS current
+                          FROM purchase_order_line_items
+                          WHERE purchase_order_id = ? AND product_id = ? LIMIT 1");
     $sel->execute([$poId, $pid]);
     $line = $sel->fetch();
-    if (!$line) po_jresp(false, ['code'=>'not_found','message'=>'Product not found in this purchase order'], 404);
+    if (!$line) po_jresp(false, ['code' => 'not_found', 'message' => 'Product not found in this PO'], 404);
 
     $expected = (int)$line['expected'];
     $current  = (int)$line['current'];
-    $newQty   = $qty;
-    if ($newQty > $expected) { $newQty = $expected; $capped = true; } else { $capped = false; }
-    $delta = $newQty - $current; // positive adds stock; negative removes
 
-    // Update line
+    // Clamp to [0, expected]
+    $finalQty = min(max(0, $qtyNew), max(0, $expected));
+    $delta    = $finalQty - $current;
+
+    // ---------- update line ----------
     $set = "{$qtyArrCol} = :q" . ($recvAtCol ? ", {$recvAtCol} = NOW()" : '');
-    $upd = $pdo->prepare("UPDATE purchase_order_line_items SET {$set} WHERE purchase_order_id = :po AND product_id = :pid");
-    $upd->execute([':q'=>$newQty, ':po'=>$poId, ':pid'=>$pid]);
+    $upd = $pdo->prepare("UPDATE purchase_order_line_items SET {$set}
+                          WHERE purchase_order_id = :po AND product_id = :pid");
+    $upd->execute([':q' => $finalQty, ':po' => $poId, ':pid' => $pid]);
 
-    // Optional: enqueue inventory adjustment if infrastructure exists and live==true and delta!=0
-    $queued = false; $queueId = null; $queueNote = null;
-    if ($delta !== 0 && $live && po_table_exists($pdo,'inventory_adjust_requests')) {
-        // Create idempotency key to avoid dupes for same (po, product, newQty)
-        $idem = 'po:'.$poId.':product:'.$pid.':qty:'.$newQty;
-        $j = $pdo->prepare('INSERT INTO inventory_adjust_requests(transfer_id,outlet_id,product_id,delta,reason,source,status,idempotency_key,requested_by,requested_at) VALUES(NULL,?,?,?,?,\'purchase-order\',\'pending\',?,?,NOW()) ON DUPLICATE KEY UPDATE requested_at = VALUES(requested_at)');
-        $j->execute([$outletId, $pid, $delta, ($delta>=0?'po-receive':'po-correction'), $idem, (int)$ctx['uid']]);
-        $queued = true; $queueId = $pdo->lastInsertId(); $queueNote = 'queued:inventory_adjust_requests';
+    // ---------- authoritative target on-hand & queue (when live) ----------
+    $queueInfo = ['queued' => false, 'job_id' => null, 'idk' => null, 'note' => null, 'target_on_hand' => null];
+
+    if ($live && $delta !== 0) {
+        // compute current CIS on-hand & target = current + delta (safe if CIS mirror is slightly off; queue verifies in Vend)
+        $target = 0;
+        try {
+            $q = $pdo->prepare('SELECT inventory_level FROM vend_inventory WHERE product_id = :p AND outlet_id = :o LIMIT 1');
+            $q->execute([':p' => $pid, ':o' => $outletId]);
+            $curOnHand = (int)($q->fetchColumn() ?: 0);
+        } catch (Throwable $e) {
+            $curOnHand = 0;
+        }
+        $target = max(0, $curOnHand + $delta);
+        $queueInfo['target_on_hand'] = $target;
+
+        // enqueue inventory.command(set)
+        require_once __DIR__ . '/../includes/queue_bridge.php';
+        $idemKey = $idem !== '' ? $idem : ('po:' . (int)$poId . ':product:' . (string)$pid . ':set:' . (int)$target);
+
+        $qres = POQueueBridge::enqueueInventorySet((string)$pid, (string)$outletId, (int)$target, (int)($ctx['uid'] ?? 0), $idemKey);
+
+        $queueInfo['queued'] = (bool)($qres['ok'] ?? false);
+        $queueInfo['job_id'] = $qres['data']['job_id'] ?? null;
+        $queueInfo['idk']    = $qres['data']['idempotency_key'] ?? $idemKey;
+        $queueInfo['note']   = $queueInfo['queued'] ? 'queued:inventory.command' : 'enqueue_failed';
     }
 
-    // Try to update local vend_inventory mirror if present and live
-    if ($delta !== 0 && $live && po_table_exists($pdo,'vend_inventory')) {
-        $vi = $pdo->prepare('UPDATE vend_inventory SET inventory_level = inventory_level + :d WHERE product_id = :pid AND outlet_id = :oid');
-        $vi->execute([':d'=>$delta, ':pid'=>$pid, ':oid'=>$outletId]);
+    // ---------- event ----------
+    po_insert_event(
+        $pdo,
+        $poId,
+        'line.update',
+        [
+            'product_id'      => $pid,
+            'qty_new'         => $finalQty,
+            'qty_prev'        => $current,
+            'delta'           => $delta,
+            'capped'          => ($qtyNew > $expected),
+            'target_on_hand'  => $queueInfo['target_on_hand'],
+            'queue'           => $queueInfo,
+        ],
+        (int)$ctx['uid']
+    );
+
+    // ---------- response & idempotency store ----------
+    $response = [
+        'success'    => true,
+        'request_id' => $GLOBALS['__PO_REQ_ID'] ?? ($_SERVER['HTTP_X_REQUEST_ID'] ?? bin2hex(random_bytes(8))),
+        'data'       => [
+            'po_id'        => $poId,
+            'product_id'   => $pid,
+            'qty_received' => $finalQty,
+            'delta'        => $delta,
+            'queue'        => $queueInfo,
+        ],
+    ];
+
+    if ($idem !== '') {
+        po_idem_store($pdo, $idem, $reqHash, $response);
     }
 
-    // Event log
-    po_insert_event($pdo, $poId, 'line.update', [
-        'product_id'=>$pid,
-        'qty_new'=>$newQty,
-        'qty_prev'=>$current,
-        'delta'=>$delta,
-        'capped'=>$capped
-    ], (int)$ctx['uid']);
+    http_response_code(200);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($response, JSON_UNESCAPED_SLASHES);
+    exit;
 
-    po_jresp(true, [
-        'po_id'=>$poId,
-        'product_id'=>$pid,
-        'qty_received'=>$newQty,
-        'delta'=>$delta,
-        'capped'=>$capped,
-        'queue'=>['queued'=>$queued, 'id'=>$queueId, 'note'=>$queueNote]
-    ]);
 } catch (Throwable $e) {
-    error_log('[po.save_progress]['.($ctx['request_id']??'-').'] '.$e->getMessage());
-    po_jresp(false, ['code'=>'internal_error','message'=>'Failed to save line'], 500);
+    po_jresp(false, ['code' => 'internal_error', 'message' => $e->getMessage()], 500);
 }
-<?php
-declare(strict_types=1);
-require_once $_SERVER['DOCUMENT_ROOT'] . '/app.php';
-$po_id = (int)($_POST['po_id'] ?? 0);
-if ($po_id <= 0) po_jresp(false, ['code'=>'invalid_po_id','message'=>'po_id required'], 400);
-// TODO: persist draft receipt progress
-po_jresp(true, ['message'=>'progress saved']);

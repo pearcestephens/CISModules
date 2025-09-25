@@ -1,44 +1,60 @@
-(function(){
-  'use strict';
-  var POX = window.POX = window.POX || {};
+/* Purchase Orders — Receive: evidence upload + QR + minor UX */
+(() => {
+  const API = '/modules/purchase-orders/ajax/handler.php';
+  const csrf = (document.querySelector('meta[name="csrf-token"]')?.content ||
+                document.querySelector('[name="csrf"]')?.value || '').trim();
+  const root = document.querySelector('.po-receive');
+  if (!root) return;
+  const PO_ID = Number(root.dataset.poId || 0);
 
-  function poId(){
-    var wrap = document.querySelector('.po-receive');
-    return wrap ? wrap.getAttribute('data-po-id') : '';
+  const listEl = document.querySelector('#evidence-list tbody') ||
+                 document.querySelector('#evidence-list');
+
+  function api(action, body) {
+    const fd = new FormData();
+    fd.append('ajax_action', action);
+    fd.append('csrf', csrf);
+    Object.entries(body || {}).forEach(([k, v]) => fd.append(k, v));
+    return fetch(API, { method: 'POST', body: fd }).then(r => r.json());
   }
 
-  function init(){
-    var btnQuick = document.getElementById('btn-quick-save');
-    var btnPartial = document.getElementById('btn-submit-partial');
-    var btnFinal = document.getElementById('btn-submit-final');
-
-    if (btnQuick) btnQuick.addEventListener('click', function(){
-      POX.fetchJSON('po.save_progress', { po_id: poId() }).then(function(r){
-        POX.toast(r.success ? 'Saved' : (r.error && r.error.message)||'Save failed', r.success?'success':'danger');
-        if (r.success && POX.reloadPO) POX.reloadPO();
-      });
-    });
-
-    if (btnPartial) btnPartial.addEventListener('click', function(){
-      if(!confirm('Submit partial receipt?')) return;
-      POX.fetchJSON('po.submit_partial', { po_id: poId() }).then(function(r){
-        POX.toast(r.success ? 'Partial saved' : (r.error && r.error.message)||'Partial failed', r.success?'success':'danger');
-        if (r.success && POX.reloadPO) POX.reloadPO();
-      });
-    });
-
-    if (btnFinal) btnFinal.addEventListener('click', function(){
-      if(!confirm('Submit final receipt? This will complete the PO.')) return;
-      POX.fetchJSON('po.submit_final', { po_id: poId() }).then(function(r){
-        if (r.success && r.data && r.data.redirect) {
-          window.location.href = r.data.redirect;
-        } else {
-          POX.toast(r.success ? 'Completed' : (r.error && r.error.message)||'Complete failed', r.success?'success':'danger');
-          if (r.success && POX.reloadPO) POX.reloadPO();
-        }
-      });
+  function listEvidence() {
+    api('list_evidence', { po_id: PO_ID }).then(res => {
+      if (!res.success) return;
+      const rows = res.data?.rows || res.data?.pagination ? res.data.rows : [];
+      const out = rows.map(r =>
+        `<tr><td>${r.id}</td><td><a href="${r.file_path}" target="_blank" rel="noopener">${r.file_path}</a></td><td>${r.evidence_type}</td><td>${r.uploaded_by ?? ''}</td><td>${r.uploaded_at}</td></tr>`
+      ).join('');
+      if (listEl) listEl.innerHTML = out || `<tr><td colspan="5" class="text-muted">No evidence yet</td></tr>`;
     });
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  // Upload form (if present on page)
+  const form = document.querySelector('#evidence-form');
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const file = document.querySelector('#ev-file')?.files?.[0];
+      const type = document.querySelector('#ev-type')?.value || 'delivery';
+      const desc = document.querySelector('#ev-desc')?.value || '';
+      if (!file) return alert('Choose a file');
+      const fd = new FormData();
+      fd.append('ajax_action', 'upload_evidence');
+      fd.append('csrf', csrf);
+      fd.append('po_id', String(PO_ID));
+      fd.append('evidence_type', type);
+      fd.append('description', desc);
+      fd.append('file', file);
+      fetch(API, { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(res => {
+          if (!res.success) return alert(res.error?.message || 'Upload failed');
+          listEvidence();
+        });
+    });
+
+    document.querySelector('#btn-refresh-evidence')?.addEventListener('click', listEvidence);
+  }
+
+  listEvidence();
 })();

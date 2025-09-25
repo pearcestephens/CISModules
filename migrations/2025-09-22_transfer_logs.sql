@@ -56,13 +56,31 @@ CREATE TABLE IF NOT EXISTS `transfer_audit_log` (
   KEY `idx_actor_time` (`actor_type`,`actor_id`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Add covering indexes if table already exists (MySQL 8 supports IF NOT EXISTS on indexes from 8.0.13+)
--- Safe guards for older versions can be handled manually if needed.
-CREATE INDEX IF NOT EXISTS `idx_tl_transfer_type_time` ON `transfer_logs` (`transfer_id`,`event_type`,`created_at`);
-CREATE INDEX IF NOT EXISTS `idx_tl_trace` ON `transfer_logs` (`trace_id`);
-CREATE INDEX IF NOT EXISTS `idx_tl_source_severity_time` ON `transfer_logs` (`source_system`,`severity`,`created_at`);
+-- Add covering indexes (MariaDB 10.5 compatible conditional creation)
+SET @exists := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'transfer_logs' AND index_name = 'idx_tl_transfer_type_time');
+SET @sql := IF(@exists = 0, 'CREATE INDEX `idx_tl_transfer_type_time` ON `transfer_logs` (`transfer_id`,`event_type`,`created_at`)', 'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-CREATE INDEX IF NOT EXISTS `idx_tal_entity_action_time` ON `transfer_audit_log` (`entity_type`,`action`,`created_at`);
-CREATE INDEX IF NOT EXISTS `idx_tal_transfer_time` ON `transfer_audit_log` (`transfer_id`,`created_at`);
-CREATE INDEX IF NOT EXISTS `idx_tal_status_time` ON `transfer_audit_log` (`status`,`created_at`);
-CREATE INDEX IF NOT EXISTS `idx_tal_actor_time` ON `transfer_audit_log` (`actor_type`,`actor_id`,`created_at`);
+SET @exists := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'transfer_logs' AND index_name = 'idx_tl_trace');
+SET @sql := IF(@exists = 0, 'CREATE INDEX `idx_tl_trace` ON `transfer_logs` (`trace_id`)', 'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @exists := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'transfer_logs' AND index_name = 'idx_tl_source_severity_time');
+SET @sql := IF(@exists = 0, 'CREATE INDEX `idx_tl_source_severity_time` ON `transfer_logs` (`source_system`,`severity`,`created_at`)', 'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @exists := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'transfer_audit_log' AND index_name = 'idx_tal_entity_action_time');
+SET @sql := IF(@exists = 0, 'CREATE INDEX `idx_tal_entity_action_time` ON `transfer_audit_log` (`entity_type`,`action`,`created_at`)', 'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @exists := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'transfer_audit_log' AND index_name = 'idx_tal_transfer_time');
+SET @sql := IF(@exists = 0, 'CREATE INDEX `idx_tal_transfer_time` ON `transfer_audit_log` (`transfer_id`,`created_at`)', 'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @exists := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'transfer_audit_log' AND index_name = 'idx_tal_status_time');
+SET @sql := IF(@exists = 0, 'CREATE INDEX `idx_tal_status_time` ON `transfer_audit_log` (`status`,`created_at`)', 'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @exists := (SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'transfer_audit_log' AND index_name = 'idx_tal_actor_time');
+SET @sql := IF(@exists = 0, 'CREATE INDEX `idx_tal_actor_time` ON `transfer_audit_log` (`actor_type`,`actor_id`,`created_at`)', 'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

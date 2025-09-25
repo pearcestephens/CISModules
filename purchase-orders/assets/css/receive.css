@@ -1,5 +1,5 @@
-/* https://staff.vapeshed.co.nz/modules/purchase-orders/assets/css/receive.css */
-.po-receive #progress_bar { min-width: 15%; background-color: #28a745; }
-.po-receive #progress_bar span { color: #fff; font-weight: 600; padding-left: 8px; }
+/* Purchase Orders — Receive */
+.po-receive .progress { background: #f2f4f7; }
+.po-receive .progress-bar { transition: width .2s ease; }
+.po-receive .text-muted { color:#6c757d !important; }
 .po-receive .table td, .po-receive .table th { vertical-align: middle; }
-.po-receive .receiving-stats h6 { margin-bottom: .25rem; }

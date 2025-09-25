@@ -17,6 +17,7 @@ Central index for module-level documentation sets.
   - Knowledge Base: `https://staff.vapeshed.co.nz/modules/transfers/stock/docs/KNOWLEDGE_BASE.md`
   - Changelog: `https://staff.vapeshed.co.nz/modules/transfers/stock/docs/CHANGELOG.md`
   - Quickstart: `https://staff.vapeshed.co.nz/modules/transfers/stock/docs/PACK_QUICKSTART.md`
+  - API Contract: `https://staff.vapeshed.co.nz/modules/transfers/stock/docs/PACK_API_CONTRACT.md`
 - Purchase Orders: `https://staff.vapeshed.co.nz/modules/purchase-orders/docs/`
   - Reference Map: `https://staff.vapeshed.co.nz/modules/purchase-orders/docs/REFERENCE_MAP.md`
   - Component Index: `https://staff.vapeshed.co.nz/modules/purchase-orders/docs/COMPONENT_INDEX.md`
@@ -34,6 +35,8 @@ Additional Docs
 
 Consolidated Knowledge Base Snapshot
 - `https://staff.vapeshed.co.nz/modules/docs/KNOWLEDGE_BASE_SUMMARY.md`
+- Phases Plan (A30→A01): `https://staff.vapeshed.co.nz/modules/docs/PHASES_A30_TO_A01.md`
+- Final Repo Layout (Target): `https://staff.vapeshed.co.nz/modules/docs/FINAL_REPO_LAYOUT.md`
 
 Freight, Packaging, Categorisation
 - Freight & Categorisation Bible v1: `https://staff.vapeshed.co.nz/modules/docs/Freight,Weight.md`

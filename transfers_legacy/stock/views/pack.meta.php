@@ -1,47 +1,23 @@
 <?php
 declare(strict_types=1);
 /**
- * View Meta: transfers/stock:pack
+ * View Meta: transfers/stock:pack (consolidated)
+ * Enriches subtitle with outlet names when available.
  */
 
-$transferId = isset($_GET['transfer']) ? trim((string)$_GET['transfer']) : '';
-
-return [
-    'title' => 'Pack Stock Transfer',
-    'subtitle' => $transferId !== '' ? ('Transfer #' . htmlspecialchars($transferId)) : 'Transfer',
-    'breadcrumb' => [
-        ['label' => 'Home', 'href' => 'https://staff.vapeshed.co.nz/'],
-        ['label' => 'Transfers', 'href' => 'https://staff.vapeshed.co.nz/modules/transfers/dashboard.php'],
-        ['label' => 'Stock', 'href' => 'https://staff.vapeshed.co.nz/modules/transfers/stock/dashboard.php'],
-        ['label' => 'Pack']
-    ],
-    'layout' => 'plain',
-    'assets' => [
-        'css' => [
-            'https://staff.vapeshed.co.nz/modules/transfers/stock/assets/css/pack.css'
-        ],
-        'js' => [
-            ['https://staff.vapeshed.co.nz/modules/transfers/stock/assets/js/pack.js', ['defer' => true]]
-        ]
-    ],
-];
-<?php
-declare(strict_types=1);
 $__tid_keys = ['transfer','transfer_id','id','tid','t'];
 $tid = 0; foreach ($__tid_keys as $__k) { if (isset($_GET[$__k]) && (int)$_GET[$__k] > 0) { $tid = (int)$_GET[$__k]; break; } }
 
-// Attempt to enrich subtitle with outlet names for professionalism
 $fromName = '';
 $toName = '';
 try {
   if ($tid > 0 && function_exists('cis_pdo')) {
     $pdo = cis_pdo();
-    // Prefer canonical transfers table
+    // Prefer canonical transfers table; fall back to legacy
     $stmt = $pdo->prepare('SELECT outlet_from, outlet_to FROM transfers WHERE id = ?');
     $stmt->execute([$tid]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     if (!$row) {
-      // Legacy fallback
       $stmt = $pdo->prepare('SELECT outlet_from, outlet_to FROM stock_transfers WHERE transfer_id = ?');
       $stmt->execute([$tid]);
       $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -66,24 +42,23 @@ try {
       }
     }
   }
-} catch (Throwable $e) { /* non-fatal */ }
+} catch (Throwable $e) { /* ignore meta enrichment errors */ }
 
 $title = $tid > 0 ? ('Pack Transfer #'.$tid) : 'Pack Transfer';
-$subtitle = '';
-if ($fromName !== '' || $toName !== '') { $subtitle = $fromName.' → '.$toName; }
+$subtitle = ($fromName !== '' || $toName !== '') ? ($fromName.' → '.$toName) : '';
 
 return [
-  // Use CIS card header for a professional, consistent look
   'title' => $title,
   'subtitle' => $subtitle,
   'breadcrumb' => [
     ['label' => 'Home', 'href' => 'https://staff.vapeshed.co.nz/'],
-    ['label' => 'Stock Transfers', 'href' => 'https://staff.vapeshed.co.nz/modules/module.php?module=transfers/stock&view=stock'],
+    ['label' => 'Transfers', 'href' => 'https://staff.vapeshed.co.nz/modules/transfers/dashboard.php'],
+    ['label' => 'Stock', 'href' => 'https://staff.vapeshed.co.nz/modules/transfers/stock/dashboard.php'],
     ['label' => $tid > 0 ? ('Pack #'.$tid) : 'Pack'],
   ],
   'layout' => 'card',
   'page_title' => $title.' — CIS',
   'assets' => [
-    // Assets for this view are queued in the view using tpl_style/tpl_script.
+    // View enqueues assets itself via tpl_style/tpl_script to ensure versioned URLs.
   ],
 ];

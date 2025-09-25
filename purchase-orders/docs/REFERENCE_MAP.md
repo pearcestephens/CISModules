@@ -82,7 +82,7 @@ POST only, CSRF and auth required. URL:
 https://staff.vapeshed.co.nz/modules/purchase-orders/ajax/handler.php
 
 - po.get_po → actions/get_po.php
-- po.search_products → actions/search_products.php
+- po.search_products → actions/search_products.php (accepts GET/POST `q`)
 - po.save_progress → actions/save_progress.php
 - po.undo_item → actions/undo_item.php
 - po.submit_partial → actions/submit_partial.php
@@ -97,21 +97,10 @@ https://staff.vapeshed.co.nz/modules/purchase-orders/ajax/handler.php
 - po.assign_evidence → actions/assign_evidence.php
 
 Admin endpoints
-- admin.list_receipts → actions/admin/list_receipts.php
+ - Health (AJAX): https://staff.vapeshed.co.nz/modules/purchase-orders/ajax/handler.php?ajax_action=health
 - admin.list_events → actions/admin/list_events.php
 - admin.list_inventory_requests → actions/admin/list_inventory_requests.php
-- admin.retry_request → actions/admin/retry_request.php
-- admin.force_resend → actions/admin/force_resend.php
-
-## Data Contracts (high-level)
-- po.get_po: { success, data:{ po:{ id, outlet_id, items:[{product_id, name, expected_qty, received_qty, image?}], totals:{expected, received}, flags:{locked, live_stock_enabled} } } }
-- po.search_products: { success, data:{ items:[{product_id, name, barcode, image?, expected_qty?}] } }
-- po.save_progress: { success, data:{ received_qty, totals } }
-- po.submit_partial/final: { success, data:{ receipt_id, submitted_by, submitted_at } }
-- po.update_live_stock: { success }
-- po.unlock/extend_lock/release_lock: { success }
-- po.upload_evidence: { success, data:{ evidence_id } }
-- po.list_evidence: { success, data:{ items:[{id, po_id, path, type, created_by, created_at}] } }
-- admin.*: paginated lists with { items, total, page, page_size }
-
+ - health → ajax/actions/health.php
 Tip: grep for `po-` IDs or `po.` AJAX actions to find everything quickly.
+
+Notes: All mutating endpoints require CSRF and support Idempotency-Key. Responses include `request_id` and `X-Request-ID` header for traceability.

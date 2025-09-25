@@ -1,241 +1,252 @@
-(function(){
-  // -------- CSRF ----------
-  function csrf(){ return (window.CIS_CSRF || ''); }
+// /modules/transfers/stock/js/pack.js
+(function () {
+  "use strict";
 
-  // -------- Small DOM utils ----------
-  function qs(sel, root){ return (root || document).querySelector(sel); }
-  function qsa(sel, root){ return (root || document).querySelectorAll(sel); }
-  function toInt(v, d){ var n = parseInt(v, 10); return isNaN(n) ? (d||0) : n; }
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-  // -------- Network helpers (FormData, stays compatible with your PHP) ----------
-  async function postForm(action, params){
-    const fd = new FormData();
-    // legacy key your server expects
-    fd.append('ajax_action', action);
-    // body token
-    fd.append('csrf', csrf());
+  const transferId = parseInt($("#transfer_id")?.value || "0", 10) || 0;
+  const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
 
-    if (params && typeof params === 'object'){
-      for (var k in params){
-        if (!Object.prototype.hasOwnProperty.call(params, k)) continue;
-        // Stringify objects (e.g., parcel_plan) so PHP can json_decode
-        const v = params[k];
-        fd.append(k, (v && typeof v === 'object') ? JSON.stringify(v) : v);
+  const apiHandler = "/modules/transfers/stock/ajax/handler.php";
+  const apiQueueLabel = "/modules/transfers/stock/ajax/queue.label.php";
+
+  function jfetch(url, bodyObj, opts = {}) {
+    const headers = {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf
+    };
+    return fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(bodyObj || {}),
+      ...opts
+    }).then(async r => {
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.ok === false || j.success === false) {
+        const err = (j.error && (j.error.message || j.error.code)) || "request_failed";
+        throw new Error(err);
       }
-    }
-
-    const res = await fetch('/modules/transfers/stock/ajax/handler.php', {
-      method:'POST',
-      headers: { 'X-CSRF-Token': csrf() }, // header token
-      body: fd,
-      credentials:'same-origin'
+      return j.data || j;
     });
-
-    // Try to parse JSON; surface HTTP errors with message
-    let j = null;
-    try { j = await res.json(); } catch(e){ /* fall through */ }
-    if (!res.ok) {
-      const msg = (j && (j.error || j.message)) || ('HTTP ' + res.status);
-      throw new Error(msg);
-    }
-    return j || { ok:false, error:'Invalid JSON response' };
   }
 
-  // -------- Row calc ----------
-  async function calcRow(row){
-    try {
-      const productId = row.getAttribute('data-product-id') || '';
-      const qty = toInt(qs('.qty-input', row)?.value || '0', 0);
-      const j = await postForm('calculate_ship_units', { product_id: productId, qty: qty });
-      if (j && j.ok){
-        qs('.ship-units', row).textContent = j.ship_units;
-        qs('.weight-g', row).textContent   = j.weight_g;
-      } else {
-        qs('.ship-units', row).textContent = 'ERR';
-        qs('.weight-g', row).textContent   = 'ERR';
-      }
-    } catch (e){
-      qs('.ship-units', row).textContent = 'ERR';
-      qs('.weight-g', row).textContent   = 'ERR';
-      console.error('calcRow error:', e);
-    } finally {
-      refreshSummary();
-    }
+  function fmt(n) {
+    return new Intl.NumberFormat("en-NZ").format(n);
   }
 
-  // -------- Summary ----------
-  function refreshSummary(){
-    const parcels = qsa('#parcelList .parcel-row').length;
+  // State
+  let items = []; // {id, product_id, sku, name, requested_qty, unit_g, suggested_ship_units}
+
+  // Render items table
+  function renderItems() {
+    const tbody = $("#tblItems tbody");
+    tbody.innerHTML = "";
     let totalWeight = 0;
-    qsa('#tblItems tbody tr').forEach(tr=>{
-      totalWeight += toInt(qs('.weight-g', tr)?.textContent || '0', 0);
-    });
-    const sp = qs('#sum-parcels'); if (sp) sp.textContent = parcels;
-    const sw = qs('#sum-weight');  if (sw) sw.textContent = totalWeight;
-  }
 
-  // -------- Build a parcel plan from the UI ----------
-  function buildParcelPlan(){
-    // MVP: each parcel row contributes a weight; attach all table rows with their ship units
-    const parcels = [];
-    const rows = qsa('#tblItems tbody tr');
+    items.forEach(it => {
+      const shipUnits = it.suggested_ship_units ?? Math.max(1, it.requested_qty || 0);
+      const weight = (it.unit_g || 100) * shipUnits;
+      totalWeight += weight;
 
-    qsa('#parcelList .parcel-row').forEach((pRow)=>{
-      const weightG = toInt(qs('.parcel-weight-input', pRow)?.value || '0', 0);
-      const items = [];
-      rows.forEach(tr=>{
-        const itemId    = tr.getAttribute('data-item-id') || '';
-        const productId = tr.getAttribute('data-product-id') || '';
-        const shipUnits = toInt(qs('.ship-units', tr)?.textContent || '0', 0);
-        if (shipUnits > 0){
-          items.push({
-            // Prefer item_id if available; server also supports product_id mapping
-            item_id: itemId ? toInt(itemId, 0) : undefined,
-            product_id: productId ? toInt(productId, 0) : undefined,
-            qty: shipUnits
-          });
-        }
-      });
-      parcels.push({ weight_g: weightG, items: items });
+      const tr = document.createElement("tr");
+      tr.dataset.itemId = it.id;
+      tr.dataset.productId = it.product_id;
+
+      tr.innerHTML = `
+        <td>
+          <div class="kv">${it.sku || it.product_id}</div>
+          <div class="small text-muted">${it.name || ""}</div>
+        </td>
+        <td>${fmt(it.requested_qty || 0)}</td>
+        <td><input class="form-control form-control-sm qty-input" type="number" min="0" value="${shipUnits}"></td>
+        <td class="ship-units">${fmt(shipUnits)}</td>
+        <td class="weight-g">${fmt(weight)}</td>
+      `;
+      tbody.appendChild(tr);
     });
 
-    return { parcels: parcels };
+    $("#sum-weight").textContent = fmt(totalWeight);
+    $("#sum-parcels").textContent = $("#parcelList .parcel-row").length.toString();
   }
 
-  // -------- New helpers: validate + readback ----------
-  async function validateParcelPlan(transferId, plan){
-    return postForm('validate_parcel_plan', {
-      transfer_id: transferId,
-      parcel_plan: plan // will be JSON.stringified inside postForm
-    });
+  function collectPlan() {
+    // very simple MVP: 1 parcel row UI; if none, backend will auto-attach anyway
+    const rows = $$("#tblItems tbody tr");
+    const itemsPlan = rows.map(tr => {
+      const qty = parseInt($(".qty-input", tr)?.value || "0", 10) || 0;
+      return {
+        item_id: parseInt(tr.dataset.itemId || "0", 10) || undefined,
+        product_id: parseInt(tr.dataset.productId || "0", 10) || undefined,
+        qty
+      };
+    }).filter(x => (x.qty || 0) > 0);
+
+    // Parcel weight from UI (g)
+    const weightInput = $(".parcel-weight-input");
+    const weight_g = parseInt(weightInput?.value || "0", 10) || 0;
+
+    return {
+      parcels: [{
+        weight_g: weight_g > 0 ? weight_g : undefined,
+        items: itemsPlan
+      }]
+    };
   }
 
-  async function loadParcels(transferId){
-    return postForm('get_parcels', { transfer_id: transferId });
+  function refreshParcels() {
+    return jfetch(apiHandler, { action: "get_parcels", transfer_id: transferId })
+      .then(d => {
+        const { parcels = [] } = d;
+        $("#sum-parcels").textContent = fmt(parcels.length || 0);
+        const totalKg = parcels.reduce((a, p) => a + (p.weight_kg || 0), 0);
+        $("#sum-weight").textContent = fmt(Math.round(totalKg * 1000));
+        // render quick list
+        const box = $("#parcelList");
+        box.innerHTML = "";
+        parcels.forEach(p => {
+          const div = document.createElement("div");
+          div.className = "parcel-line";
+          div.innerHTML = `<span class="text-muted">#${p.box_number}</span> · ${fmt(p.weight_kg || 0)} kg · ${fmt(p.items_count || 0)} items`;
+          box.appendChild(div);
+        });
+      })
+      .catch(() => { /* ignore */ });
   }
 
-  // Optional: render the right-hand “Parcels” pane if present
-  function renderParcelsPane(data){
-    const pane = qs('#parcelsPane');
-    if (!pane || !data) return;
-    const { shipment_id, parcels } = data;
-    let html = '';
-    html += '<div class="parcels-header">';
-    html += '<div><strong>Shipment:</strong> ' + (shipment_id ?? '—') + '</div>';
-    html += '<div><strong>Parcels:</strong> ' + (parcels?.length || 0) + '</div>';
-    html += '</div>';
-    html += '<div class="parcels-list">';
-    (parcels || []).forEach(p=>{
-      html += '<div class="parcel-card">';
-      html +=   '<div>#' + p.box_number + '</div>';
-      html +=   '<div>Weight: ' + p.weight_kg + ' kg</div>';
-      html +=   '<div>Items: ' + p.items_count + '</div>';
-      html += '</div>';
-    });
-    html += '</div>';
-    pane.innerHTML = html;
+  // actions
+  async function loadItems() {
+    const data = await jfetch(apiHandler, { action: "list_items", transfer_id: transferId });
+    items = (data.items || []).map(r => ({
+      id: r.id,
+      product_id: r.product_id,
+      sku: r.sku,
+      name: r.name,
+      requested_qty: r.requested_qty,
+      unit_g: r.unit_g ?? 100,
+      suggested_ship_units: r.suggested_ship_units ?? (r.requested_qty || 1)
+    }));
+    renderItems();
   }
 
-  // -------- Generate labels (merged: validation + readback) ----------
-  let inFlight = false; // prevent double submits
-  async function generateLabel(carrier){
-    if (inFlight) return;
-    inFlight = true;
-    const btns = qsa('#btn-label-gss, #btn-label-nzpost, #btn-save-pack');
-    btns.forEach(b => b && (b.disabled = true));
+  async function savePackNote() {
+    const notes = ($("#pack-notes")?.value || "").trim();
+    if (!notes) return;
+    await jfetch(apiHandler, { action: "save_pack", transfer_id: transferId, notes });
+  }
 
+  async function generateLabel(carrier) {
+    const btn = carrier === "MVP" ? $("#btn-label-gss") : $("#btn-label-nzpost");
+    btn.disabled = true;
     try {
-      const transferId = toInt(qs('#transfer_id')?.value || '0', 0);
-      const outletFrom = qs('#outlet_from')?.value || '';
-      const plan = buildParcelPlan();
+      // Build plan (backend will auto attach items if empty)
+      const plan = collectPlan();
 
-      // 1) Pre-validate so UI can highlight unknowns if needed
-      const v = await validateParcelPlan(transferId, plan);
-      if (!v || !v.ok){
-        alert('Validation failed: ' + (v?.error || 'Unexpected error'));
-        return;
-      }
-      if (Array.isArray(v.unknown) && v.unknown.length > 0){
-        // Optional: visually mark unknown items/rows here
-        console.warn('Unknown lines in plan:', v.unknown);
-        // Continue or abort based on your policy; for now we continue.
-      }
+      const res = await fetch(apiQueueLabel, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transfer_pk: transferId,
+          carrier: carrier || "MVP",
+          parcel_plan: plan
+        })
+      }).then(r => r.json());
 
-      // 2) Create labels (server supports auto-attach if items[] omitted/empty)
-      const j = await postForm('generate_label', {
-        transfer_id: transferId,
-        carrier: carrier,
-        outlet_from: outletFrom,
-        parcel_plan: plan
-      });
-
-      if (!j || !j.ok){
-        alert('Label failed: ' + (j?.message || j?.error || 'error'));
-        return;
+      if (!res || res.ok !== true) {
+        const msg = (res && res.error && (res.error.message || res.error.code)) || "label_failed";
+        throw new Error(msg);
       }
 
-      // 3) Readback to populate right-hand parcels panel
-      const r = await loadParcels(transferId);
-      if (r && r.ok){
-        renderParcelsPane({ shipment_id: r.shipment_id, parcels: r.parcels });
-      }
+      // Save note so we keep context
+      await savePackNote();
 
-      alert('Shipment created (MVP). ID: ' + (j.shipment_id || '?'));
-    } catch (e){
-      console.error('generateLabel error:', e);
-      alert('Label failed: ' + (e?.message || 'error'));
+      // Reflect parcels
+      await refreshParcels();
+
+      toast("Label created.");
+    } catch (e) {
+      console.error(e);
+      alert("Generate label failed: " + (e.message || e));
     } finally {
-      inFlight = false;
-      btns.forEach(b => b && (b.disabled = false));
+      btn.disabled = false;
     }
   }
 
-  // -------- Events ----------
-  document.addEventListener('change', function(e){
-    const t = e.target;
-    if (t.matches('.qty-input')){
-      const tr = t.closest('tr'); if (tr) calcRow(tr);
-    }
-  });
+  function toast(msg) {
+    const el = document.createElement("div");
+    el.className = "pack-toast";
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.classList.add("show"));
+    setTimeout(() => { el.classList.remove("show"); el.remove(); }, 2500);
+  }
 
-  document.addEventListener('click', function(e){
-    const t = e.target;
-
-    if (t.matches('#btn-save-pack')){
-      e.preventDefault();
-      const transferId = toInt(qs('#transfer_id')?.value || '0', 0);
-      postForm('save_pack', {
-        transfer_id: transferId,
-        notes: (qs('#pack-notes')?.value || '')
-      }).then(j=>{
-        alert(j.ok ? 'Saved' : ('Save failed: ' + (j.error||'error')));
-      }).catch(err=>{
-        alert('Save failed: ' + (err?.message || 'error'));
+  // UI wiring
+  function wire() {
+    // Update derived cells when qty changes
+    $("#tblItems").addEventListener("input", (ev) => {
+      if (!ev.target.classList.contains("qty-input")) return;
+      const tr = ev.target.closest("tr");
+      const it = items.find(x => x.id === parseInt(tr.dataset.itemId || "0", 10));
+      const su = Math.max(0, parseInt(ev.target.value || "0", 10) || 0);
+      const unitG = it?.unit_g || 100;
+      $(".ship-units", tr).textContent = fmt(su);
+      $(".weight-g", tr).textContent = fmt(su * unitG);
+      // recompute total weight
+      let total = 0;
+      $$("#tblItems tbody tr").forEach(row => {
+        total += parseInt($(".weight-g", row)?.textContent.replace(/,/g, "") || "0", 10) || 0;
       });
-    }
+      $("#sum-weight").textContent = fmt(total);
+    });
 
-    if (t.matches('#btn-label-gss')) {
-      e.preventDefault();
-      generateLabel('gosweetspot');
-    }
-    if (t.matches('#btn-label-nzpost')) {
-      e.preventDefault();
-      generateLabel('nzpost');
-    }
+    // Add another parcel row (MVP)
+    $("#parcelList").addEventListener("click", (e) => {
+      if (!e.target.classList.contains("add-row")) return;
+      const list = $("#parcelList");
+      const idx = $$(".parcel-row", list).length + 1;
+      const row = document.createElement("div");
+      row.className = "parcel-row mb-2";
+      row.innerHTML = `
+        <div class="d-flex align-items-center gap-2">
+          <span class="text-muted">#${idx}</span>
+          <input type="number" min="0" class="form-control form-control-sm parcel-weight-input" placeholder="Weight(g)" style="width:140px">
+          <button class="btn btn-sm btn-outline-danger remove-row" type="button">Remove</button>
+        </div>`;
+      list.appendChild(row);
+      $("#sum-parcels").textContent = fmt(idx);
+    });
+    $("#parcelList").addEventListener("click", e => {
+      if (!e.target.classList.contains("remove-row")) return;
+      const row = e.target.closest(".parcel-row");
+      row?.remove();
+      $("#sum-parcels").textContent = fmt($$(".parcel-row").length);
+    });
 
-    if (t.matches('.add-row')){
-      e.preventDefault();
-      const tpl = qs('#parcelList .parcel-row');
-      if (!tpl) return;
-      const clone = tpl.cloneNode(true);
-      const w = qs('.parcel-weight-input', clone);
-      if (w) w.value = '';
-      qs('#parcelList')?.appendChild(clone);
-      refreshSummary();
-    }
-  });
+    $("#btn-label-gss").addEventListener("click", () => generateLabel("MVP"));
+    // (NZPost placeholder – disabled in UI)
+    $("#btn-label-nzpost")?.addEventListener("click", () => generateLabel("NZPost"));
 
-  // -------- Init ----------
-  qsa('#tblItems tbody tr').forEach(calcRow);
-  refreshSummary();
+    $("#btn-save-pack").addEventListener("click", async () => {
+      try {
+        await savePackNote();
+        toast("Pack saved.");
+      } catch (e) {
+        alert("Save failed: " + (e.message || e));
+      }
+    });
+  }
+
+  async function boot() {
+    if (!transferId) {
+      alert("Missing transfer_id");
+      return;
+    }
+    $("#request-id")?.textContent = "";
+    await loadItems();
+    await refreshParcels();
+    wire();
+  }
+
+  document.addEventListener("DOMContentLoaded", boot);
 })();

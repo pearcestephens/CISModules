@@ -1,3 +1,24 @@
+# Knowledge Base – Summary
+
+This summary captures key cross-module behaviors and recent updates.
+
+## Purchase Orders (2025-09-25)
+- Request tracing via `X-Request-ID` and envelope `request_id` across endpoints.
+- CSRF hardened: failures return 403 with standard envelope.
+- Idempotency with request hashing for: save_progress, submit_partial, submit_final, update_live_stock.
+- Evidence flows secured and paginated; `assign_evidence` validates and updates `po_evidence.purchase_order_id`.
+- Product search added (vend mirror backed) with ≤ 20 results and SKU index.
+- Schema shims now include helpful BTREE indexes and utf8mb4_unicode_ci collation.
+
+Acceptance Checklist
+- Shims applied; indexes present; collation uniform.
+- Envelope consistency; CSRF enforced.
+- Idempotency replays and 409 conflicts as expected; rows present in `idempotency_keys`.
+- Search fast and typed, capped; evidence assignment persists; stock update queues and optional live write.
+
+Links
+- PO README: https://staff.vapeshed.co.nz/modules/purchase-orders/README.md
+- PO Docs: https://staff.vapeshed.co.nz/modules/purchase-orders/docs/
 # CIS Modules — Knowledge Base Snapshot (2025-09-24)
 
 Authoritative, high-level map of modules under https://staff.vapeshed.co.nz/modules/ with conventions, routes, AJAX endpoints, and where to find deeper docs. Keep this file updated when adding modules or changing entry points.

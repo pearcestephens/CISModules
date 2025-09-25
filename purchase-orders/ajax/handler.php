@@ -1,52 +1,79 @@
 <?php
-/**
- * Purchase Orders AJAX Handler (v1)
- * URL: https://staff.vapeshed.co.nz/modules/purchase-orders/ajax/handler.php
- */
-
 declare(strict_types=1);
-require_once __DIR__ . '/tools.php';
+
+require_once $_SERVER['DOCUMENT_ROOT'] . '/core/bootstrap.php';   // request_id + headers (if present)
+
+header('Content-Type: application/json; charset=utf-8');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: no-referrer');
+
+// Lightweight health probe BEFORE loading tools.php (to avoid app.php login redirect)
+$earlyAction = (string)($_GET['ajax_action'] ?? '');
+if ($earlyAction === 'health') {
+  $rid = function_exists('cis_request_id') ? cis_request_id() : (function(){ try { return bin2hex(random_bytes(16)); } catch (\Throwable $e) { return substr(bin2hex(uniqid('', true)), 0, 32); } })();
+  if (!headers_sent()) {
+    header('X-Request-ID: ' . $rid, true);
+  }
+  http_response_code(200);
+  echo json_encode([
+    'success'    => true,
+    'data'       => [
+      'module' => 'purchase-orders',
+      'status' => 'healthy',
+      'time'   => gmdate('c'),
+    ],
+    'request_id' => $rid,
+  ], JSON_UNESCAPED_SLASHES);
+  exit;
+}
+
+// Load tools after health so we don't trigger any app.php redirects for unauthenticated probes
+require_once __DIR__ . '/tools.php';                              // responder, pdo, guards
+
+$uid = po_require_login();
+
+$action = (string)($_POST['ajax_action'] ?? $_GET['ajax_action'] ?? '');
+$reqId  = $_SERVER['HTTP_X_REQUEST_ID'] ?? bin2hex(random_bytes(8));
+
+$map = [
+  'health'         => 'actions/health.php', // optional JSON health (will not be included; early exit above handles GET)
+  'get_po'          => 'actions/get_po.php',
+  'save_progress'   => 'actions/save_progress.php',
+  'submit_partial'  => 'actions/submit_partial.php',
+  'submit_final'    => 'actions/submit_final.php',
+  'upload_evidence' => 'actions/upload_evidence.php',
+  'list_evidence'   => 'actions/list_evidence.php',
+
+  // admin helpers
+  'admin.list_receipts'          => 'actions/admin/list_receipts.php',
+  'admin.list_events'            => 'actions/admin/list_events.php',
+  'admin.list_inventory_requests'=> 'actions/admin/list_inventory_requests.php',
+  'admin.retry_request'          => 'actions/admin/retry_request.php',
+  'admin.force_resend'           => 'actions/admin/force_resend.php',
+];
+
+if ($action === '') {
+  po_jresp(false, ['code' => 'no_action', 'message' => 'Missing ajax_action'], 400);
+}
+
+if (!isset($map[$action])) {
+  po_jresp(false, ['code' => 'unknown_action', 'message' => 'Unknown action'], 404);
+}
+
+$GLOBALS['__po_ctx'] = [
+  'uid'        => $uid,
+  'request_id' => $reqId,
+];
 
 try {
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        po_jresp(false, ['code' => 'method_not_allowed', 'message' => 'POST required'], 405);
-    }
-    $uid = po_require_login();
+  // CSRF on mutating actions
+  $needsCsrf = ['save_progress','submit_partial','submit_final','upload_evidence',
+                'admin.retry_request','admin.force_resend'];
+  if (in_array($action, $needsCsrf, true)) {
     po_verify_csrf();
+  }
 
-    $action = $_POST['action'] ?? null;
-    if (!$action) po_jresp(false, ['code' => 'bad_request', 'message' => 'action required'], 400);
-
-    $map = [
-        'po.get_po'            => __DIR__ . '/actions/get_po.php',
-        'po.search_products'   => __DIR__ . '/actions/search_products.php',
-        'po.save_progress'     => __DIR__ . '/actions/save_progress.php',
-        'po.undo_item'         => __DIR__ . '/actions/undo_item.php',
-        'po.submit_partial'    => __DIR__ . '/actions/submit_partial.php',
-        'po.submit_final'      => __DIR__ . '/actions/submit_final.php',
-        'po.update_live_stock' => __DIR__ . '/actions/update_live_stock.php',
-        'po.unlock'            => __DIR__ . '/actions/unlock.php',
-        'po.extend_lock'       => __DIR__ . '/actions/extend_lock.php',
-        'po.release_lock'      => __DIR__ . '/actions/release_lock.php',
-        'po.upload_evidence'   => __DIR__ . '/actions/upload_evidence.php',
-        'po.list_evidence'     => __DIR__ . '/actions/list_evidence.php',
-        'po.issue_upload_qr'   => __DIR__ . '/actions/issue_upload_qr.php',
-        'po.assign_evidence'   => __DIR__ . '/actions/assign_evidence.php',
-        // Admin endpoints
-        'admin.list_receipts'  => __DIR__ . '/actions/admin/list_receipts.php',
-        'admin.list_events'    => __DIR__ . '/actions/admin/list_events.php',
-    'admin.list_inventory_requests' => __DIR__ . '/actions/admin/list_inventory_requests.php',
-    'admin.retry_request'  => __DIR__ . '/actions/admin/retry_request.php',
-    'admin.force_resend'   => __DIR__ . '/actions/admin/force_resend.php',
-    ];
-
-    if (!isset($map[$action]) || !file_exists($map[$action])) {
-        po_jresp(false, ['code' => 'unknown_action', 'message' => 'Unknown action: ' . $action], 404);
-    }
-
-    $GLOBALS['__po_ctx'] = ['uid'=>$uid, 'request_id'=>$__PO_REQ_ID];
-    require $map[$action];
+  require __DIR__ . '/' . $map[$action];
 } catch (Throwable $e) {
-    error_log('[purchase-orders.ajax]['.$__PO_REQ_ID.'] '.$e->getMessage());
-    po_jresp(false, ['code' => 'internal_error', 'message' => 'Unexpected error'], 500);
+  po_jresp(false, ['code' => 'exception', 'message' => $e->getMessage()], 500);
 }
